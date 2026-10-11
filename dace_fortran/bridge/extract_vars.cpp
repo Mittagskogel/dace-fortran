@@ -1546,6 +1546,69 @@ void runMultiCallsiteDisambiguation(mlir::ModuleOp module) {
     }
   }
 
+  // A clone that reinterprets its actual's rank (``b(ldb, *)`` bound to ``ps(nkb, npol, m)``) reaches the source
+  // declare through a bare ``fir.convert``, no designate, so the loop above leaves it the shared uniq_name. A sibling
+  // clone that only aliases its actual (``b`` bound to ``vkb``) names that uniq_name after the actual, and the
+  // reinterpreting clone keyed the same would turn the actual itself (QE h_psi's ``hpsi`` dummy) into a view of
+  // ``ps``. Each reinterpreting clone gets its own name.
+  auto rankOf = [](mlir::Value val) -> int {
+    if (auto seq = mlir::dyn_cast<fir::SequenceType>(peelTypeLayers(val.getType()))) return seq.getDimension();
+    return 0;
+  };
+  auto reinterpretsRank = [&](hlfir::DeclareOp op) -> bool {
+    mlir::Value v = op.getMemref();
+    for (int i = 0; i < limits::kSsaBackWalkDepth && v; ++i) {
+      auto* d = v.getDefiningOp();
+      if (!d) return false;
+      if (auto src = mlir::dyn_cast<hlfir::DeclareOp>(d)) {
+        int const srcRank = rankOf(src.getResult(0));
+        return srcRank > 0 && srcRank != rankOf(op.getResult(0));
+      }
+      if (auto cv = mlir::dyn_cast<fir::ConvertOp>(d)) {
+        v = cv.getValue();
+        continue;
+      }
+      if (auto ba = mlir::dyn_cast<fir::BoxAddrOp>(d)) {
+        v = ba.getVal();
+        continue;
+      }
+      if (auto cp = mlir::dyn_cast<hlfir::CopyInOp>(d)) {
+        v = cp.getVar();
+        continue;
+      }
+      if (auto eb = mlir::dyn_cast<fir::EmboxOp>(d)) {
+        v = eb.getMemref();
+        continue;
+      }
+      if (auto ld = mlir::dyn_cast<fir::LoadOp>(d)) {
+        v = ld.getMemref();
+        continue;
+      }
+      if (auto rb = mlir::dyn_cast<fir::ReboxOp>(d)) {
+        v = rb.getBox();
+        continue;
+      }
+      return false;
+    }
+    return false;
+  };
+  llvm::StringMap<llvm::SmallVector<hlfir::DeclareOp, 4>> clonesByUniq;
+  module.walk([&](hlfir::DeclareOp op) {
+    auto* fn = op->getParentOfType<mlir::func::FuncOp>().getOperation();
+    if (auto f = mlir::dyn_cast_or_null<mlir::func::FuncOp>(fn))
+      if (f.isPrivate()) return;
+    if (op.getDummyScope()) clonesByUniq[op.getUniqName()].push_back(op);
+  });
+  for (auto& kv : clonesByUniq) {
+    if (kv.second.size() < 2) continue;
+    unsigned idx = 0;
+    for (auto op : kv.second) {
+      if (!reinterpretsRank(op)) continue;
+      std::string const newUniq = op.getUniqName().str() + "_rank" + std::to_string(idx++);
+      op->setAttr("uniq_name", mlir::StringAttr::get(op.getContext(), newUniq));
+    }
+  }
+
   // hlfir-inline-all also copies each call site's callee LOCALS (the result scalar,
   // temporaries) with a shared uniq_name. Unlike dummies these have no dummy_scope and
   // aren't section aliases, so the loop above skips them; downstream name-keying then
