@@ -479,17 +479,46 @@ const char* libcallNameForExprOp(mlir::Operation* op) {
   return nullptr;
 }
 
-/// Per-dim shape strings from an hlfir.expr type: static dims -> decimal literal, ``?`` extents stay ``?`` for
-/// descriptors.py to fill from a synthetic ``<name>_d<i>`` symbol.
-std::vector<std::string> exprResultShape(mlir::Type ty) {
+/// The rank of an array-valued operand type (reference, box or plain sequence), 0 for a scalar.
+static unsigned operandRank(mlir::Type ty) {
+  if (auto seq = mlir::dyn_cast<fir::SequenceType>(fir::unwrapRefType(fir::unwrapPassByRefType(ty))))
+    return seq.getDimension();
+  return 0;
+}
+
+/// ``<operand>_d<k>``: the builder resolves it to dimension ``k`` (0-based) of the operand's own descriptor.
+static std::string operandExtent(mlir::Value operand, unsigned dim) {
+  auto name = traceToDecl(operand);
+  return name.empty() ? std::string("?") : name + "_d" + std::to_string(dim);
+}
+
+std::vector<std::string> exprResultShape(mlir::Type ty, mlir::Operation* producer) {
   std::vector<std::string> out;
-  if (auto e = mlir::dyn_cast<hlfir::ExprType>(ty)) {
-    for (int64_t const d : e.getShape()) {
-      if (d == hlfir::ExprType::getUnknownExtent())
-        out.emplace_back("?");
-      else
-        out.push_back(std::to_string(d));
+  auto e = mlir::dyn_cast<hlfir::ExprType>(ty);
+  if (!e) return out;
+  // A dynamic extent of a MATMUL / TRANSPOSE result is an extent of an operand: rows(A) x cols(B), or A's dims swapped.
+  std::vector<std::string> fromOperands;
+  if (producer && producer->getNumOperands() >= 1) {
+    auto name = producer->getName().getStringRef();
+    mlir::Value a = producer->getOperand(0);
+    unsigned const ra = operandRank(a.getType());
+    if (name == "hlfir.transpose" && ra == 2) {
+      fromOperands = {operandExtent(a, 1), operandExtent(a, 0)};
+    } else if ((name == "hlfir.matmul" || name == "hlfir.matmul_transpose") && producer->getNumOperands() >= 2) {
+      mlir::Value b = producer->getOperand(1);
+      unsigned const rb = operandRank(b.getType());
+      // matmul_transpose is MATMUL(TRANSPOSE(A), B): A's rows are its second dimension.
+      unsigned const aRows = name == "hlfir.matmul_transpose" ? 1 : 0;
+      if (ra == 2) fromOperands.push_back(operandExtent(a, aRows));
+      if (rb == 2) fromOperands.push_back(operandExtent(b, 1));
     }
+  }
+  auto const shape = e.getShape();
+  for (size_t d = 0; d < shape.size(); ++d) {
+    if (shape[d] != hlfir::ExprType::getUnknownExtent())
+      out.push_back(std::to_string(shape[d]));
+    else
+      out.push_back(fromOperands.size() == shape.size() ? fromOperands[d] : std::string("?"));
   }
   return out;
 }
@@ -632,7 +661,7 @@ static std::pair<std::string, std::vector<ASTNode>> materialiseElementalToTransi
         std::string const tmp = "_libtmp_" + std::to_string(kLibTmpCounter++);
         kHlfirExprToTransient[srcOp] = tmp;
         mlir::Type const rty = srcOp->getResult(0).getType();
-        auto rshape = exprResultShape(rty);
+        auto rshape = exprResultShape(rty, srcOp);
         ASTNode decl;
         decl.kind = "declare_transient";
         decl.target = tmp;

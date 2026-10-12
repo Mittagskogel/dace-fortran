@@ -209,7 +209,7 @@ const char* libcallNameForExprOp(mlir::Operation* op);
 
 /// Render the result-type shape of an hlfir.expr<...> value as per-dim extent strings; empty vector if not an
 /// hlfir.expr. See elementals.cpp.
-std::vector<std::string> exprResultShape(mlir::Type ty);
+std::vector<std::string> exprResultShape(mlir::Type ty, mlir::Operation* producer = nullptr);
 
 /// Render the result element-type of an hlfir.expr<...> value as a numpy-style dtype string. See elementals.cpp.
 std::string exprDtypeString(mlir::Type ty);

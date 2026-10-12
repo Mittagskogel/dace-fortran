@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 import dace.symbolic
 from dace import InterstateEdge, Memlet, dtypes
 
-from dace_fortran.builder.access import acc, iter_view_dim_map
+from dace_fortran.builder.access import acc, collect_indirect_in, iter_view_dim_map
 from dace_fortran.builder.records import NodeLike, SyntheticNode
 from dace_fortran.dace_types import input_connector, output_connector
 from dace_fortran.external import C_TYPES, Arg, ArgKind, CAbi, Intent
@@ -252,6 +252,32 @@ def emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlo
         _emit_libcall(builder, ctx, n, region)
 
 
+def symbolize_subset_indices(
+    builder: SDFGBuilder, ctx: Ctx, region: ControlFlowRegion, subsets: list[str]
+) -> list[str]:
+    """``subsets`` with each data-dependent index replaced by a symbol assigned before the call.
+
+    A memlet subset can only name symbols, so an argument section indexed through an array
+    (``g(idx(a) + 1, :, :)``, subset ``idx[a] + 1 - 1, 0:n, 0:n``) or through a data scalar
+    (``g(k, :, :)``) is no valid subset as written. Each such index is read into a symbol on an
+    interstate edge after ``ctx.cur``, as the assignment path does, which leaves ``ctx.cur`` on the
+    state the call goes into.
+    """
+    from dace_fortran.builder.emit_cfg import materialize_indirect_syms
+
+    indirect = collect_indirect_in(builder, subsets)
+    if not indirect:
+        return subsets
+    materialize_indirect_syms(builder, ctx, region, indirect)
+    rewritten = []
+    for sub in subsets:
+        # Outermost indirection first: its text contains the inner ones. A staged scalar is a whole token.
+        for expr, sym in reversed(indirect.items()):
+            sub = sub.replace(expr, sym) if "[" in expr else re.sub(rf"\b{re.escape(expr)}\b(?!\s*\[)", sym, sub)
+        rewritten.append(sub)
+    return rewritten
+
+
 def _emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowRegion) -> None:
     from dace import dtypes
 
@@ -274,12 +300,18 @@ def _emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFl
             target_is_array=n.target_is_array,
             call_args=list(n.call_args),
             call_arg_subsets=list(n.call_arg_subsets or ["", ""]),
+            target_subset=n.target_subset,
             accesses=list(n.accesses),
             reduce_axes=list(n.reduce_axes or []),
             options=opts,
         )
         emit_libcall(builder, ctx, m_node, region)
         return
+
+    *arg_subsets, target_subset = symbolize_subset_indices(
+        builder, ctx, region, [*(n.call_arg_subsets or []), n.target_subset or ""]
+    )
+    state = ctx.cur
 
     spec = libnode_spec(n.callee)
     if spec is None:
@@ -386,7 +418,6 @@ def _emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFl
 
     # call_arg_subsets parallels call_args: empty = whole array, else a DaCe-0-based subset
     # (e.g. "0:3"). Older bridge builds may leave it unpopulated.
-    arg_subsets = list(n.call_arg_subsets or [])
     arg_subsets += [""] * (len(n.call_args) - len(arg_subsets))
     # ArgMin/ArgMax mask=True adds a _mask input connector not listed in _LIBCALL_CONNECTORS
     # (optional); append it here.
@@ -401,7 +432,9 @@ def _emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFl
     # Element-designate dest (res1(1) = dot_product(...)): narrow the output memlet to one
     # element -- a whole-array memlet would fail validation for scalar-output libcalls.
     write_acc = next((ac for ac in n.accesses if ac.is_write), None)
-    if write_acc is not None:
+    if target_subset:
+        out_memlet = Memlet(f"{n.target}[{target_subset}]")
+    elif write_acc is not None:
         from dace_fortran.builder.access import build_memlet_index
 
         ix = build_memlet_index(builder, n.target, write_acc, ctx.iter_map)
