@@ -897,11 +897,28 @@ def add_descriptors(builder: SDFGBuilder, sdfg: SDFG) -> None:
             # ``[1, ...]`` is correct.
             if len(view_strides) != len(dims):
                 view_strides = [1] * len(dims) if len(dims) > 0 else None
-            # An assumed-size dummy aliasing a whole actual (``ind(*)`` <- ``igk(n, nks)``) has no extent of its own:
-            # its last dimension is what the actual's storage leaves after the leading ones.
+            # An assumed-size dummy has no extent of its own: aliasing a whole actual (``ind(*)`` <- ``igk(n, nks)``)
+            # or, by sequence association, an element of one (``ind(*)`` <- ``igk(1, ik)``), its last dimension is
+            # what the actual's storage from that element on leaves after the leading ones.
             last = len(dims) - 1
-            if src_dims and v.view_subset == [""] and last >= 0 and str(dims[last]) == f"{v.fortran_name}_d{last}":
-                total = dace.symbolic.pystr_to_symbolic(" * ".join(f"({d})" for d in src_dims))
+            element_actual = (
+                src_dims is not None
+                and len(v.view_subset) == len(src_dims)
+                and all(sub and ":" not in sub for sub in v.view_subset)
+            )
+            if (
+                src_dims
+                and (v.view_subset == [""] or element_actual)
+                and last >= 0
+                and str(dims[last]) == f"{v.fortran_name}_d{last}"
+            ):
+                remaining = " * ".join(f"({d})" for d in src_dims)
+                if element_actual:
+                    strides = _fortran_strides([_dim(s) for s in src_dims])
+                    remaining += "".join(
+                        f" - ({sub}) * ({stride})" for sub, stride in zip(v.view_subset, strides, strict=True)
+                    )
+                total = dace.symbolic.pystr_to_symbolic(remaining)
                 leading = dace.symbolic.pystr_to_symbolic(" * ".join(f"({d})" for d in dims[:last]) or "1")
                 dims[last] = dace.symbolic.int_floor(total, leading) if last else total
             sdfg.add_view(

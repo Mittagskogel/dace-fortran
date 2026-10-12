@@ -86,6 +86,8 @@ def test_solve_nh_numerical_e2e(tmp_path: Path):
             "nrdmax": 1,
             "kstart_moist": 1,
             "ndyn_substeps_var": 1,
+            # 0 takes neither branch that computes z_rho_v/z_theta_v_v, yet the edge update reads them
+            "iadv_rhotheta": 1,
         },
         array_overrides={"p_patch_nlev": 7, "p_patch_nlevp1": 8},
         # vct_a (vertical coord table) is an ALLOCATABLE module global the kernel indexes directly
