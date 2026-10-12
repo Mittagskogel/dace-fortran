@@ -292,9 +292,9 @@ std::vector<ASTNode> buildElementalAssign(hlfir::AssignOp assign, hlfir::Element
                     }
                 lib.call_args.push_back(arrName);
                 auto shiftVal = cshOp.getShift();
-                if (auto c = traceConstInt(shiftVal))
+                if (auto c = traceConstInt(shiftVal)) {
                   lib.options["shift"] = std::to_string(*c);
-                else {
+                } else {
                   auto sExpr = buildIndexExpr(shiftVal, 0);
                   if (!sExpr.empty() && sExpr != "?") lib.options["shift"] = sExpr;
                 }
@@ -782,8 +782,8 @@ std::string buildExprWithSubscripts(mlir::Value val, int d) {
     return "(" + buildExprWithSubscripts(def->getOperand(0), d + 1) + it->second +
            buildExprWithSubscripts(def->getOperand(1), d + 1) + ")";
   if ((nm == "arith.divsi" || nm == "arith.divui") && def->getNumOperands() == 2) {
-    const std::string a = buildExprWithSubscripts(def->getOperand(0), d + 1),
-                      b = buildExprWithSubscripts(def->getOperand(1), d + 1);
+    const std::string a = buildExprWithSubscripts(def->getOperand(0), d + 1);
+    const std::string b = buildExprWithSubscripts(def->getOperand(1), d + 1);
     return nm == "arith.divsi" ? truncatedDivision(a, b) : floorDivision(a, b);
   }
   if (nm == "arith.negf" && def->getNumOperands() == 1)
@@ -904,11 +904,6 @@ std::string scfSynthName(mlir::Value v) {
   std::string s = "__sc_" + std::to_string(kScfValueCounter++);
   kScfValueMap[v] = s;
   return s;
-}
-
-static bool isScfIfResult(mlir::Value v) {
-  auto* def = v.getDefiningOp();
-  return def && mlir::isa<mlir::scf::IfOp>(def);
 }
 
 /// Convert a yielded value to a string for writing into a synthetic scalar; reuses buildExpr, which traces through

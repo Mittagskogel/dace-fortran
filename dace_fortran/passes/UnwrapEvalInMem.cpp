@@ -240,7 +240,7 @@ struct UnwrapEvalInMemPass : public mlir::PassWrapper<UnwrapEvalInMemPass, mlir:
                                                /*memref=*/alloca.getResult(),
                                                /*shape=*/op.getShape(),
                                                /*typeparams=*/op.getTypeparams(),
-                                               /*uniq_name=*/builder.getStringAttr(name));
+                                               /*uniqName=*/builder.getStringAttr(name));
 
     mapper.map(bufArg, declare.getResult(0));
     for (auto& innerOp : llvm::make_early_inc_range(*entry)) {

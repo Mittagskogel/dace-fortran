@@ -185,9 +185,9 @@ struct VersionShapeScalarsPass
     llvm::SmallVector<fir::LoadOp, 8> loads;
     for (auto res : {decl.getResult(0), decl.getResult(1)})
       for (auto* u : res.getUsers()) {
-        if (writeTargetOf(u) == res)
+        if (writeTargetOf(u) == res) {
           stores.push_back(u);
-        else if (auto ld = mlir::dyn_cast<fir::LoadOp>(u)) {
+        } else if (auto ld = mlir::dyn_cast<fir::LoadOp>(u)) {
           if (ld.getMemref() == res) loads.push_back(ld);
         }
       }

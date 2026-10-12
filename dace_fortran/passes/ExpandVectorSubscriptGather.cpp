@@ -149,16 +149,17 @@ struct ExpandVectorSubscriptGatherPass
     std::string enclName = "anon";
     if (auto fn = assoc->getParentOfType<mlir::func::FuncOp>()) {
       auto sym = fn.getSymName().str();
-      if (sym.rfind("_QP", 0) == 0)
+      if (sym.rfind("_QP", 0) == 0) {
         enclName = sym.substr(3);
-      else if (sym.rfind("_QM", 0) == 0) {
+      } else if (sym.rfind("_QM", 0) == 0) {
         auto p = sym.find('P', 3);
         if (p != std::string::npos)
           enclName = sym.substr(3, p - 3) + "_" + sym.substr(p + 1);
         else
           enclName = sym.substr(3);
-      } else
+      } else {
         enclName = sym;
+      }
     }
     std::string const uniqName = "_QF" + enclName + "E__assoc_scalar_" + std::to_string(id);
 
@@ -204,7 +205,7 @@ struct ExpandVectorSubscriptGatherPass
     // the same shape as the rank-1 case but build a nested
     // ``fir.do_loop`` tree below.
     llvm::SmallVector<mlir::Value, 4> extents(shapeOp.getExtents().begin(), shapeOp.getExtents().end());
-    auto const rank = (unsigned)extents.size();
+    auto const rank = static_cast<unsigned>(extents.size());
     llvm::SmallVector<int64_t, 4> staticExts(rank, fir::SequenceType::getUnknownExtent());
     bool allStatic = true;
     for (unsigned i = 0; i < rank; ++i) {
@@ -241,16 +242,17 @@ struct ExpandVectorSubscriptGatherPass
     if (auto fn = assoc->getParentOfType<mlir::func::FuncOp>()) {
       auto sym = fn.getSymName().str();
       // ``_QPmain`` -> ``main``; ``_QMmodPfn`` -> ``mod_fn`` (best effort).
-      if (sym.rfind("_QP", 0) == 0)
+      if (sym.rfind("_QP", 0) == 0) {
         enclName = sym.substr(3);
-      else if (sym.rfind("_QM", 0) == 0) {
+      } else if (sym.rfind("_QM", 0) == 0) {
         auto p = sym.find('P', 3);
         if (p != std::string::npos)
           enclName = sym.substr(3, p - 3) + "_" + sym.substr(p + 1);
         else
           enclName = sym.substr(3);
-      } else
+      } else {
         enclName = sym;
+      }
     }
     // Walk the elemental's body to find the source array name.
     // Pattern: yield_element of fir.load of hlfir.designate of a
@@ -311,7 +313,7 @@ struct ExpandVectorSubscriptGatherPass
                                            /*memref=*/alloca.getResult(),
                                            /*shape=*/shapeOper,
                                            /*typeparams=*/mlir::ValueRange{},
-                                           /*uniq_name=*/b.getStringAttr(uniqName));
+                                           /*uniqName=*/b.getStringAttr(uniqName));
     }
 
     // 2) Build the nested gather DO loop tree  --  one ``fir.do_loop``

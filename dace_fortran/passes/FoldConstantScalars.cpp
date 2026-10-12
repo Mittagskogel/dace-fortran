@@ -37,31 +37,6 @@ namespace hlfir_bridge {
 
 namespace {
 
-/// Trace a value back through ``hlfir.declare`` / ``fir.convert`` to the
-/// underlying ``fir.alloca``.  Returns the alloca value when the allocated
-/// type is a scalar integer, float, or logical; otherwise returns nullptr.
-mlir::Value getScalarAlloca(mlir::Value v) {
-  for (int i = 0; i < 32 && v; ++i) {
-    if (auto alloca = mlir::dyn_cast_or_null<fir::AllocaOp>(v.getDefiningOp())) {
-      mlir::Type t = alloca.getAllocatedType();
-      if (mlir::isa<mlir::IntegerType, mlir::FloatType, fir::LogicalType>(t)) {
-        return v;
-      }
-      return nullptr;
-    }
-    if (auto decl = mlir::dyn_cast_or_null<hlfir::DeclareOp>(v.getDefiningOp())) {
-      v = decl.getMemref();
-      continue;
-    }
-    if (auto conv = mlir::dyn_cast_or_null<fir::ConvertOp>(v.getDefiningOp())) {
-      v = conv.getValue();
-      continue;
-    }
-    break;
-  }
-  return nullptr;
-}
-
 /// Return the ultimate ``arith.constant`` op feeding ``v`` through a chain of
 /// ``fir.convert`` ops, or nullptr if the value is not a constant.
 mlir::arith::ConstantOp getConstantOp(mlir::Value v) {
@@ -87,7 +62,7 @@ bool collectMemoryUsers(mlir::Value v, llvm::SmallVectorImpl<fir::LoadOp>& loads
                         llvm::SmallVectorImpl<fir::StoreOp>& stores, llvm::SmallVectorImpl<hlfir::AssignOp>& assigns) {
   for (auto* u : v.getUsers()) {
     if (auto decl = mlir::dyn_cast<hlfir::DeclareOp>(u)) {
-      for (mlir::Value r : decl.getResults()) {
+      for (mlir::Value const r : decl.getResults()) {
         if (!collectMemoryUsers(r, loads, stores, assigns)) return false;
       }
       continue;
@@ -108,7 +83,7 @@ bool collectMemoryUsers(mlir::Value v, llvm::SmallVectorImpl<fir::LoadOp>& loads
       // Only treat scalar RHS assignments as stores.  Array/box assignments to
       // the same symbol cannot appear for a scalar alloca, but we still guard
       // the RHS type to keep the transform obviously local and correct.
-      mlir::Type rhsTy = as.getRhs().getType();
+      mlir::Type const rhsTy = as.getRhs().getType();
       if (mlir::isa<mlir::IntegerType, mlir::FloatType, fir::LogicalType>(rhsTy)) {
         assigns.push_back(as);
         continue;
@@ -141,16 +116,16 @@ struct FoldConstantScalarsPass
 
       llvm::SmallVector<fir::AllocaOp> allocas;
       func.walk([&](fir::AllocaOp a) {
-        mlir::Type t = a.getAllocatedType();
+        mlir::Type const t = a.getAllocatedType();
         if (mlir::isa<mlir::IntegerType, mlir::FloatType, fir::LogicalType>(t)) {
           allocas.push_back(a);
         }
       });
 
-      mlir::DominanceInfo dom(func);
+      mlir::DominanceInfo const dom(func);
 
       for (auto alloca : allocas) {
-        mlir::Value base = alloca.getResult();
+        mlir::Value const base = alloca.getResult();
         llvm::SmallVector<fir::LoadOp, 4> loads;
         llvm::SmallVector<fir::StoreOp, 1> stores;
         llvm::SmallVector<hlfir::AssignOp, 1> assigns;

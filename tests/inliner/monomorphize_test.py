@@ -12,7 +12,7 @@ asserted with ``pytest.raises`` (not xfail) so detection is itself under test.
 
 import pytest
 
-from dace_fortran.inliner.ast_desugaring.monomorphize import UnsupportedProgram, analyze_source
+from dace_fortran.inliner.ast_desugaring.monomorphize import UnsupportedProgram, analyze, parse_program
 
 # Two independent abstract bases -- mirrors ICON's orthogonal dispatch axes
 # (backend + transfer), each its own closed subtype set => two plans.
@@ -92,7 +92,7 @@ end module
 
 
 def test_two_independent_bases_yield_two_plans():
-    plans = analyze_source(TWO_INDEPENDENT_BASES)
+    plans = analyze(parse_program(TWO_INDEPENDENT_BASES))
     by_base = {p.abstract_base: p for p in plans}
     assert set(by_base) == {"t_solver", "t_transfer"}
     assert [a.type_name for a in by_base["t_solver"].arms] == ["t_gmres"]
@@ -101,12 +101,12 @@ def test_two_independent_bases_yield_two_plans():
 
 def test_abstract_extending_abstract_is_rejected():
     with pytest.raises(UnsupportedProgram, match="itself extends"):
-        analyze_source(ABSTRACT_EXTENDS_ABSTRACT)
+        analyze(parse_program(ABSTRACT_EXTENDS_ABSTRACT))
 
 
 def test_unsupported_program_carries_reason():
     with pytest.raises(UnsupportedProgram) as excinfo:
-        analyze_source(UNLIMITED_POLYMORPHIC)
+        analyze(parse_program(UNLIMITED_POLYMORPHIC))
     # the reason is both the exception message and a dedicated attribute, so
     # callers can detect + surface *why* a program was rejected.
     assert excinfo.value.reason == str(excinfo.value)

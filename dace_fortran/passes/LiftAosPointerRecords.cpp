@@ -213,18 +213,6 @@ std::optional<int64_t> constIntForwarded(mlir::Value v) {
   return std::nullopt;
 }
 
-/// Element type stripped of the box-of-pointer wrappers (the pointer's
-/// shape itself is assumed-shape ``?x?...`` for a generic
-/// ``REAL, POINTER :: x(:,:)`` declaration, so the EXTENTS come from a
-/// rebind target instead -- see ``innerShapeFromTargetDecl``).
-mlir::Type elemTypeOfPtrMember(fir::BoxType boxTy) {
-  auto inner = boxTy.getEleTy();
-  if (auto p = mlir::dyn_cast<fir::PointerType>(inner)) inner = p.getEleTy();
-  if (auto h = mlir::dyn_cast<fir::HeapType>(inner)) inner = h.getEleTy();
-  if (auto seq = mlir::dyn_cast<fir::SequenceType>(inner)) return seq.getEleTy();
-  return inner;
-}
-
 /// Placeholder inner shape from the member box TYPE alone, for a matched AoS
 /// with NO rebinds (the dead ``recv_sp`` exchange scaffolding when
 /// ``nfields_sp`` folds to 0).  With no rebind target there is no source for
@@ -817,7 +805,7 @@ bool isElementDesignate(hlfir::DesignateOp dg) {
 /// True when the declare maps Fortran subscripts one-to-one to the concat's 1-based inner subscripts, i.e. it has
 /// no lower-bound shift.
 bool hasUnitLowerBounds(hlfir::DeclareOp decl) {
-  mlir::Value shape = decl.getShape();
+  mlir::Value const shape = decl.getShape();
   return !shape || mlir::isa_and_nonnull<fir::ShapeOp>(shape.getDefiningOp());
 }
 
@@ -843,8 +831,7 @@ TargetWindow collectTargetWindow(const Rebind& r) {
     }
   };
   addRoots(r.targetDecl, hasUnitLowerBounds(r.targetDecl));
-  for (size_t i = 0; i < roots.size(); ++i) {
-    mlir::Value const root = roots[i];
+  for (auto root : roots) {
     bool const unit = unitBounds[root];
     for (auto* u : root.getUsers()) {
       if (auto rd = mlir::dyn_cast<hlfir::DeclareOp>(u)) {
@@ -908,7 +895,10 @@ struct LiftAosPointerRecordsPass
   void runOnOperation() override {
     auto module = getOperation();
     for (auto func : llvm::make_early_inc_range(module.getOps<mlir::func::FuncOp>())) {
-      if (!processFunction(func)) return signalPassFailure();
+      if (!processFunction(func)) {
+        signalPassFailure();
+        return;
+      }
     }
   }
 

@@ -772,7 +772,7 @@ bool isNullifyStore(fir::StoreOp st) {
 mlir::Value memberSlotRebindValue(hlfir::DesignateOp slotRead) {
   auto comp = slotRead.getComponent();
   if (!comp) return {};
-  mlir::Value base = slotRead.getMemref();
+  mlir::Value const base = slotRead.getMemref();
   auto baseDecl = mlir::dyn_cast_or_null<hlfir::DeclareOp>(base.getDefiningOp());
   if (!baseDecl || !rootsAtOwnedStorage(baseDecl.getResult(0))) return {};
   fir::StoreOp found;
@@ -801,7 +801,7 @@ RebindChain resolveMemberSlotChain(mlir::Value v) {
   for (int depth = 0; depth < 16 && v; ++depth) {
     RebindChain chain = traceRebindChain(v);
     if (!chain.parent || chain.chain.empty()) return chain;
-    ChainStep& front = chain.chain.front();
+    ChainStep const& front = chain.chain.front();
     bool hasTriplet = false;
     for (bool const t : front.triplets)
       if (t) {
@@ -1986,7 +1986,7 @@ struct RewritePointerAssignsPass
       changed = false;
       for (size_t i = 0; i < worklist.size(); ++i) {
         auto* op = worklist[i];
-        if (!op || erased.count(op) || !op->use_empty()) continue;
+        if (!op || erased.contains(op) || !op->use_empty()) continue;
         llvm::SmallVector<mlir::Operation*, 4> operandDefs;
         for (auto o : op->getOperands())
           if (auto* d = o.getDefiningOp()) operandDefs.push_back(d);

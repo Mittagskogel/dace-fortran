@@ -10,9 +10,6 @@ backend picks:
   ``compile_to_hlfir``: algebraically exact, avoids a backend-dependent
   ``pow()`` vs ``x*x`` rounding diff against the gfortran reference.
 
-* ``promote_real_literals_to_double`` -- ``2.0`` -> ``2.0D0``.  Standalone
-  utility, not wired into the build path.
-
 * ``strip_openmp_directives`` -- drops OpenMP/OpenACC sentinels and the ICON
   ``omp_definitions.inc`` include.  Unconditional in
   ``preprocess_fortran_source``: semantic no-op without ``-fopenmp``, but the
@@ -50,19 +47,6 @@ _INT_POW_RE = re.compile(r"\*\*\s*(?:\(\s*(" + _REAL_EXP + r")\s*\)|(" + _REAL_E
 # Identifier + ``(`` -- a call/array ref; a power base containing one must
 # not be duplicated.
 _CALL_IN_BASE = re.compile(r"[A-Za-z_]\w*\s*\(")
-
-# REAL literal: needs a frac point or exponent so a bare integer never
-# matches; captures are mantissa/exponent/kind.  Lookbehind/ahead keep off
-# identifiers (``R2ES``) and kind selectors.
-_REAL_LIT_RE = re.compile(
-    r"(?<![\w.])"
-    r"(\d+\.\d*|\.\d+|\d+)"  # mantissa
-    r"([eEdD][+-]?\d+)?"  # optional exponent
-    r"(_[A-Za-z]\w*|_\d+)?"  # optional kind suffix
-    r"(?![\w.])"
-)
-# Kind suffixes already double precision -- left alone.
-_DOUBLE_KINDS = {"jprb", "jprd", "dp", "8", "16", "r8", "qp"}
 
 _INTEGER_DECL_RE = re.compile(
     r"\bINTEGER\b(?:\s*\([^)]*\))?(?:\s*,\s*[A-Z_]+(?:\s*\([^)]*\))?)*\s*::\s*([^\n!]+)",
@@ -232,44 +216,6 @@ def rewrite_integer_powers(source: str) -> str:
         for begin, fin, repl in reversed(edits):  # right-to-left: stable idx
             code = code[:begin] + repl + code[fin:]
         out.append(code + tail + nl)
-    return "".join(out)
-
-
-def _promote_one(m: re.Match[str]) -> str:
-    """Rewrite one ``_REAL_LIT_RE`` match to double precision; returns the
-    match unchanged when it's an integer or already double.
-    """
-    mant, expo, kind = m.group(1), m.group(2) or "", m.group(3) or ""
-    if "." not in mant and not expo:
-        return m.group(0)  # bare integer -- not a real literal
-    if expo[:1] in ("d", "D"):
-        return m.group(0)  # already double via D-exponent
-    if kind and kind[1:].lower() in _DOUBLE_KINDS:
-        return m.group(0)  # already double via kind suffix
-    if expo:
-        return f"{mant}D{expo[1:]}"  # E-exponent -> D-exponent
-    return f"{mant}D0"  # bare/single -> append D0
-
-
-def promote_real_literals_to_double(source: str) -> str:
-    """Rewrite single/default REAL literals to double precision (``2.0`` ->
-    ``2.0D0``, ``1.0_JPRM`` -> ``1.0D0``).  Already-double literals (``D``
-    exponent / double kind suffix) and integers are left untouched.
-    Comments and strings are never modified.  Idempotent.
-    """
-    out = []
-    for line in source.splitlines(keepends=True):
-        nl = line[len(line.rstrip("\r\n")) :]
-        body = line[: len(line) - len(nl)]
-        cut, strings = _scan_line(body)
-        code, tail = body[:cut], body[cut:]
-
-        def _repl(m: re.Match) -> str:
-            if any(s <= m.start() < e for s, e in strings):
-                return m.group(0)  # inside a character string
-            return _promote_one(m)
-
-        out.append(_REAL_LIT_RE.sub(_repl, code) + tail + nl)
     return "".join(out)
 
 

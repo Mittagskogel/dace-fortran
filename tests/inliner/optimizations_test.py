@@ -649,67 +649,6 @@ END SUBROUTINE main
     SourceCodeBuilder().add_file(got).check_with_gfortran()
 
 
-def test_practically_constant_global_vars_constants():
-    """
-    Tests that global variables that are initialized but never modified are
-    converted to `PARAMETER`s.
-    """
-    sources, _ = (
-        SourceCodeBuilder()
-        .add_file("""
-module lib
-  implicit none
-  logical :: fixed_cond = .false.
-  logical :: movable_cond = .false.
-contains
-  subroutine update(what)
-    implicit none
-    logical, intent(out) :: what
-    what = .true.
-  end subroutine update
-end module lib
-
-subroutine main
-  use lib
-  implicit none
-  real :: a = 1.0
-  call update(movable_cond)
-  movable_cond = .not. movable_cond
-  if (fixed_cond .and. movable_cond) a = 7.1
-end subroutine main
-""")
-        .check_with_gfortran()
-        .get()
-    )
-    ast = parse_and_improve(sources)
-    ast = optimizations.make_practically_constant_global_vars_constants(ast)
-
-    got = ast.tofortran()
-    want = """
-MODULE lib
-  IMPLICIT NONE
-  LOGICAL, PARAMETER :: fixed_cond = .FALSE.
-  LOGICAL :: movable_cond = .FALSE.
-  CONTAINS
-  SUBROUTINE update(what)
-    IMPLICIT NONE
-    LOGICAL, INTENT(OUT) :: what
-    what = .TRUE.
-  END SUBROUTINE update
-END MODULE lib
-SUBROUTINE main
-  USE lib
-  IMPLICIT NONE
-  REAL :: a = 1.0
-  CALL update(movable_cond)
-  movable_cond = .NOT. movable_cond
-  IF (fixed_cond .AND. movable_cond) a = 7.1
-END SUBROUTINE main
-""".strip()
-    assert got == want
-    SourceCodeBuilder().add_file(got).check_with_gfortran()
-
-
 def test_exploit_locally_constant_variables():
     """
     Tests that locally constant variables are propagated and folded into
@@ -1169,7 +1108,6 @@ if __name__ == "__main__":
     test_config_injection_array()
     test_config_injection_allocatable_fixing()
     test_practically_constant_arguments()
-    test_practically_constant_global_vars_constants()
     test_exploit_locally_constant_variables()
     test_exploit_locally_constant_struct_members()
     test_exploit_locally_constant_pointers()

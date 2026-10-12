@@ -70,5 +70,37 @@ end subroutine count_positive
     assert total[0] == 1 + 4  # mc = 1 reads ngc(4) = 5, mc = 4 reads ngc(1) = 1
 
 
+def test_rank_2_read_nested_in_a_scalar_index(tmp_path):
+    """``gr = iproc2(stown(i1, i2))`` (QE h_psi's ``sticks_dist_new``): the nested rank-2 read is staged into a symbol
+    before it indexes ``iproc2``, as everything that indexes data must be a symbol."""
+    src = """
+SUBROUTINE nested2d(iproc2, stown, idx, out, nct, n1, n2, np)
+  IMPLICIT NONE
+  INTEGER, INTENT(IN) :: nct, n1, n2, np
+  INTEGER, INTENT(IN) :: iproc2(np), stown(n1, n2), idx(nct)
+  INTEGER, INTENT(INOUT) :: out(np)
+  INTEGER :: mc, i1, i2, gr
+  DO mc = 1, nct
+    i1 = idx(mc)
+    i2 = MOD(idx(mc), n2) + 1
+    IF (stown(i1, i2) > 0) THEN
+      gr = iproc2(stown(i1, i2))
+      out(gr) = out(gr) + 1
+    END IF
+  END DO
+END SUBROUTINE
+"""
+    mod = f2py_compile(src, tmp_path / "ref", "nested2d")
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="nested2d").build()  # the default pipeline
+    iproc2 = np.array([2, 1, 3], dtype=np.int32)
+    stown = np.array([[1, 0], [3, 2], [0, 1]], dtype=np.int32, order="F")
+    idx = np.array([1, 2, 3, 2], dtype=np.int32)
+    want = np.zeros(3, dtype=np.int32)
+    mod.nested2d(iproc2, stown, idx, want)
+    got = np.zeros(3, dtype=np.int32)
+    sdfg(iproc2=iproc2, stown=stown, idx=idx, out=got, nct=np.int32(4), n1=np.int32(3), n2=np.int32(2), np=np.int32(3))
+    np.testing.assert_array_equal(got, want)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))

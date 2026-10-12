@@ -1929,7 +1929,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
     // member's index dims.  So for ``A(i)%w(j, k)``, the recipe's
     // total rank is outer_rank + member_rank, and the read expr
     // is ``A($i1)%w($i2, $i3)``.
-    unsigned const outerRank = outerIsArray ? (unsigned)outerShape.size() : 0U;
+    unsigned const outerRank = outerIsArray ? static_cast<unsigned>(outerShape.size()) : 0U;
 
     // Emit one FlattenEntry per member.  Earlier the function
     // bundled every member into a single multi-flat recipe, which
@@ -1946,7 +1946,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
       if (excludeMembers.contains(memName)) continue;
       mlir::Type const memTy = pair.second;
       int const memRank = memberRank(memTy);
-      int const totalRank = (int)outerRank + memRank;
+      int const totalRank = static_cast<int>(outerRank) + memRank;
 
       std::string const flat = (outerName + "_" + memName).str();
 
@@ -1967,7 +1967,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
         read += "(";
         for (int i = 1; i <= memRank; ++i) {
           if (i > 1) read += ", ";
-          read += "$i" + std::to_string((int)outerRank + i);
+          read += "$i" + std::to_string(static_cast<int>(outerRank) + i);
         }
         read += ")";
       }
@@ -1981,7 +1981,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
       llvm::SmallVector<mlir::Attribute, 4> shapeExprs;
       if (totalRank > 0) {
         for (unsigned i = 1; i <= outerRank; ++i) {
-          std::string const s = "size(" + sourceBase + ", dim=" + std::to_string((int)i) + ")";
+          std::string const s = "size(" + sourceBase + ", dim=" + std::to_string(static_cast<int>(i)) + ")";
           shapeExprs.push_back(mkStr(s));
         }
         std::string sampleOuter = sourceBase;
@@ -2178,7 +2178,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
 
     std::string const flatName = outerName + "_" + memName.str();
     std::string const capName = "cap_" + flatName;
-    auto const outerRank = (unsigned)outerShape.size();
+    auto const outerRank = static_cast<unsigned>(outerShape.size());
 
     // read_expr: ``<outer>($i1, ..., $iOR)%<member>($i_OR+1)``.
     // We always treat the allocatable member as 1-D for now (the
@@ -2191,7 +2191,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
     }
     read += ")%";
     read += memName.str();
-    read += "($i" + std::to_string((int)outerRank + 1) + ")";
+    read += "($i" + std::to_string(static_cast<int>(outerRank) + 1) + ")";
 
     llvm::SmallVector<mlir::Attribute, 1> const flatNames{mkStr(flatName)};
     llvm::SmallVector<mlir::Attribute, 1> const readExprs{mkStr(read)};
@@ -2202,12 +2202,12 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
     // pack-in code computes it directly.
     llvm::SmallVector<mlir::Attribute, 2> shapeExprs;
     for (unsigned i = 1; i <= outerRank; ++i) {
-      std::string const s = "size(" + outerName + ", dim=" + std::to_string((int)i) + ")";
+      std::string const s = "size(" + outerName + ", dim=" + std::to_string(static_cast<int>(i)) + ")";
       shapeExprs.push_back(mkStr(s));
     }
     shapeExprs.push_back(mkStr(capName));
 
-    int64_t const totalRank = (int64_t)outerRank + 1;
+    int64_t const totalRank = static_cast<int64_t>(outerRank) + 1;
 
     auto recipe = b.getDictionaryAttr({
         b.getNamedAttr("flat_names", b.getArrayAttr(flatNames)),
@@ -2730,23 +2730,23 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
         std::string read = aorPath + "(";
         for (unsigned i = 1; i <= outerRank; ++i) {
           if (i > 1) read += ", ";
-          read += "$i" + std::to_string((int)i);
+          read += "$i" + std::to_string(static_cast<int>(i));
         }
         read += ")%" + kv.first.inner;
         int const memRank = memberRank(innerTy);  // 0 scalar inner, >0 static-array inner (``%x(3)``)
-        int const totalRank = (int)outerRank + memRank;
+        int const totalRank = static_cast<int>(outerRank) + memRank;
         if (memRank > 0) {
           read += "(";
           for (int i = 1; i <= memRank; ++i) {
             if (i > 1) read += ", ";
-            read += "$i" + std::to_string((int)outerRank + i);
+            read += "$i" + std::to_string(static_cast<int>(outerRank) + i);
           }
           read += ")";
         }
         // shape: outer AoR extents, then the inner member's own (static) dims.
         llvm::SmallVector<mlir::Attribute, 4> shapeExprs;
         for (unsigned i = 1; i <= outerRank; ++i)
-          shapeExprs.push_back(mkStr("size(" + aorPath + ", dim=" + std::to_string((int)i) + ")"));
+          shapeExprs.push_back(mkStr("size(" + aorPath + ", dim=" + std::to_string(static_cast<int>(i)) + ")"));
         if (memRank > 0) {
           std::string sample = aorPath + "(";
           for (unsigned i = 0; i < outerRank; ++i) {
@@ -4102,9 +4102,9 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
       p.rec = rec;
       p.outerIsArray = outerIsArray;
       p.outerShape.assign(outerShape.begin(), outerShape.end());
-      if (!outerIsArray && isJaggedScalarStruct(rec, p.jaggedEleTy, p.jaggedExtents))
+      if (!outerIsArray && isJaggedScalarStruct(rec, p.jaggedEleTy, p.jaggedExtents)) {
         p.jagged = true;
-      else if (!allMembersFlattenable(rec)) {
+      } else if (!allMembersFlattenable(rec)) {
         // Nested branch: the struct has at least one record-
         // typed member.  Walk every leaf path; if every leaf is
         // a flat type with static extents we can replace the

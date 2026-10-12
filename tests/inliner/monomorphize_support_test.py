@@ -6,7 +6,7 @@ directly via ``pytest.raises(UnsupportedProgram)`` matching the reason, not xfai
 
 import pytest
 
-from dace_fortran.inliner.ast_desugaring.monomorphize import UnsupportedProgram, analyze_source
+from dace_fortran.inliner.ast_desugaring.monomorphize import UnsupportedProgram, analyze, parse_program
 
 # ---------------------------------------------------------------------------
 # Supported: an abstract solver + two concretizations, each with %init/%solve.
@@ -176,7 +176,7 @@ end module
 
 
 def test_supported_two_concrete_enumerates_both_arms():
-    plans = analyze_source(SUPPORTED_TWO_CONCRETE)
+    plans = analyze(parse_program(SUPPORTED_TWO_CONCRETE))
     assert len(plans) == 1
     plan = plans[0]
     assert plan.abstract_base == "t_solver"
@@ -189,39 +189,39 @@ def test_supported_two_concrete_enumerates_both_arms():
 
 
 def test_supported_single_concrete_is_a_one_arm_plan():
-    plans = analyze_source(SUPPORTED_ONE_CONCRETE)
+    plans = analyze(parse_program(SUPPORTED_ONE_CONCRETE))
     assert len(plans) == 1
     assert [a.type_name for a in plans[0].arms] == ["t_gmres"]
 
 
 def test_program_without_polymorphism_is_a_noop_not_an_error():
-    plans = analyze_source("module m\n  integer :: x\nend module\n")
+    plans = analyze(parse_program("module m\n  integer :: x\nend module\n"))
     assert plans == []
 
 
 def test_unlimited_polymorphic_is_rejected():
     with pytest.raises(UnsupportedProgram, match=r"CLASS\(\*\)"):
-        analyze_source(UNSUPPORTED_UNLIMITED_POLY)
+        analyze(parse_program(UNSUPPORTED_UNLIMITED_POLY))
 
 
 def test_deep_inheritance_chain_is_rejected():
     with pytest.raises(UnsupportedProgram, match=r"depth > 1"):
-        analyze_source(UNSUPPORTED_DEEP_CHAIN)
+        analyze(parse_program(UNSUPPORTED_DEEP_CHAIN))
 
 
 def test_abstract_intermediate_subtype_is_rejected():
     with pytest.raises(UnsupportedProgram, match=r"itself abstract"):
-        analyze_source(UNSUPPORTED_ABSTRACT_INTERMEDIATE)
+        analyze(parse_program(UNSUPPORTED_ABSTRACT_INTERMEDIATE))
 
 
 def test_abstract_base_without_concrete_subtype_is_rejected():
     with pytest.raises(UnsupportedProgram, match=r"nothing to dispatch to"):
-        analyze_source(UNSUPPORTED_NO_CONCRETE)
+        analyze(parse_program(UNSUPPORTED_NO_CONCRETE))
 
 
 def test_subtype_missing_a_deferred_override_is_rejected():
     with pytest.raises(UnsupportedProgram, match=r"does not override deferred"):
-        analyze_source(UNSUPPORTED_MISSING_OVERRIDE)
+        analyze(parse_program(UNSUPPORTED_MISSING_OVERRIDE))
 
 
 if __name__ == "__main__":

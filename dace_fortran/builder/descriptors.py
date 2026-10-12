@@ -897,6 +897,13 @@ def add_descriptors(builder: SDFGBuilder, sdfg: SDFG) -> None:
             # ``[1, ...]`` is correct.
             if len(view_strides) != len(dims):
                 view_strides = [1] * len(dims) if len(dims) > 0 else None
+            # An assumed-size dummy aliasing a whole actual (``ind(*)`` <- ``igk(n, nks)``) has no extent of its own:
+            # its last dimension is what the actual's storage leaves after the leading ones.
+            last = len(dims) - 1
+            if src_dims and v.view_subset == [""] and last >= 0 and str(dims[last]) == f"{v.fortran_name}_d{last}":
+                total = dace.symbolic.pystr_to_symbolic(" * ".join(f"({d})" for d in src_dims))
+                leading = dace.symbolic.pystr_to_symbolic(" * ".join(f"({d})" for d in dims[:last]) or "1")
+                dims[last] = dace.symbolic.int_floor(total, leading) if last else total
             sdfg.add_view(
                 v.fortran_name,
                 shape=dims,
@@ -1141,6 +1148,19 @@ def emit_declare_transient(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: 
                     resolved.append(desc.shape[dim])
                     continue
         resolved.append(entry)
+    from dace_fortran.builder.emit_cfg import _fortran_subs_to_dace, _hoist_bound_to_symbol
+
+    for i, entry in enumerate(resolved):
+        if not isinstance(entry, str):
+            continue
+        reads_data = "[" in entry or any(
+            nm in builder.scalars and nm not in builder.symbols for nm in re.findall(r"\b[A-Za-z_]\w*\b", entry)
+        )
+        if reads_data:
+            # An extent read from data (``SUM(deeq(ih, 1 : nh(nt), ...))``'s ``nh[nt]``) is staged into a symbol:
+            # a shape and the subsets over it may name only symbols.
+            sym = _hoist_bound_to_symbol(ctx, region, builder, _fortran_subs_to_dace(entry, builder), "extent")
+            resolved[i] = sym or entry
     declare_synth_array(builder, n.target, resolved, n.expr or "int32", ctx)
 
 

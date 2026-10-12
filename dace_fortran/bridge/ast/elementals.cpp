@@ -178,8 +178,7 @@ std::string resolveExtent(mlir::Value shape, unsigned d) {
       if (auto ld = mlir::dyn_cast<fir::LoadOp>(d)) {
         // A scalar load (memref = the scalar's own declare) is a genuine scalar -- stop there.
         auto* md = ld.getMemref().getDefiningOp();
-        if (md && mlir::isa<hlfir::DesignateOp, fir::CoordinateOp>(md)) return true;
-        return false;
+        return md && mlir::isa<hlfir::DesignateOp, fir::CoordinateOp>(md);
       }
       for (auto opnd : d->getOperands())
         if (isElemLoad(opnd, depth + 1)) return true;
@@ -370,9 +369,14 @@ void collectReadAccesses(mlir::Value v, std::vector<AccessInfo>& accesses, int d
   if (depth > 40) return;
   auto* op = v.getDefiningOp();
   if (!op) return;
-  // ``fir.box_dims`` reads only shape/bounds metadata (already rendered as symbols); recursing into its operand would
-  // record a spurious rank-1 whole-array read that fails sdfg.validate. Stop the walk here.
-  if (op->getName().getStringRef() == "fir.box_dims") return;
+  // ``fir.box_dims`` reads only shape/bounds metadata; recursing into its operand would record a spurious rank-1
+  // whole-array read that fails sdfg.validate. A section's extent is its triplet bounds, though, and those may read
+  // data (``SIZE(orb(1 : ngk(1), :))``): collect only them.
+  if (op->getName().getStringRef() == "fir.box_dims") {
+    if (auto dg = mlir::dyn_cast_or_null<hlfir::DesignateOp>(op->getOperand(0).getDefiningOp()))
+      for (auto idx : dg.getIndices()) collectReadAccesses(idx, accesses, depth + 1);
+    return;
+  }
   // A reduction materialised into a scalar by materialiseCondReductions is owned by its Reduce lib-node, not the
   // condition -- skip it here.
   if (kCondReductionScalars.find(op) != kCondReductionScalars.end()) return;
@@ -475,8 +479,6 @@ const char* libcallNameForExprOp(mlir::Operation* op) {
   return nullptr;
 }
 
-/// Per-dim shape strings from an hlfir.expr type: static dims -> decimal literal, ``?`` extents stay ``?`` for
-/// descriptors.py to fill from a synthetic ``<name>_d<i>`` symbol.
 /// The rank of an array-valued operand type (reference, box or plain sequence), 0 for a scalar.
 static unsigned operandRank(mlir::Type ty) {
   if (auto seq = mlir::dyn_cast<fir::SequenceType>(fir::unwrapRefType(fir::unwrapPassByRefType(ty))))
@@ -524,19 +526,10 @@ std::vector<std::string> exprResultShape(mlir::Type ty, mlir::Operation* produce
 /// Maps an hlfir.expr element type to FaCe's dtype string, default float64; i1 (COUNT/ANY/ALL boolean masks) maps to
 /// int32 since CountLibraryNode/Reduce.atomic expect 0/1 ints.
 std::string exprDtypeString(mlir::Type ty) {
-  if (auto e = mlir::dyn_cast<hlfir::ExprType>(ty)) {
-    auto elt = e.getElementType();
-    if (elt.isF64()) return "float64";
-    if (elt.isF32()) return "float32";
-    if (auto c = mlir::dyn_cast<mlir::ComplexType>(elt)) {
-      if (c.getElementType().isF64()) return "complex128";
-      if (c.getElementType().isF32()) return "complex64";
-    }
-    if (elt.isInteger(1)) return "int32";
-    if (elt.isInteger(32)) return "int32";
-    if (elt.isInteger(64)) return "int64";
-  }
-  return "float64";
+  if (auto e = mlir::dyn_cast<hlfir::ExprType>(ty)) ty = e.getElementType();
+  if (ty.isInteger(1)) return "int32";  // boolean masks
+  std::string const name = dtypeName(ty);
+  return name.empty() ? "float64" : name;
 }
 
 /// Lowers an hlfir.elemental body (per-element predicate/expression) into a (declare_transient,
@@ -725,7 +718,7 @@ static std::pair<std::string, std::vector<ASTNode>> materialiseElementalToTransi
   for (unsigned i = 0; i < pushed; ++i) indexStack().pop_back();
 
   ASTNode current = inner;
-  for (int i = (int)rank - 1; i >= 0; --i) {
+  for (int i = static_cast<int>(rank) - 1; i >= 0; --i) {
     ASTNode wrap;
     wrap.kind = "loop";
     wrap.loop_iter = iter_names[i];
@@ -815,7 +808,7 @@ std::pair<std::string, std::vector<ASTNode>> materialiseElementalForLibcall(hlfi
   for (unsigned i = 0; i < pushed; ++i) indexStack().pop_back();
 
   ASTNode current = inner;
-  for (int i = (int)rank - 1; i >= 0; --i) {
+  for (int i = static_cast<int>(rank) - 1; i >= 0; --i) {
     ASTNode wrap;
     wrap.kind = "loop";
     wrap.loop_iter = iter_names[i];
@@ -927,7 +920,7 @@ static std::vector<ASTNode> buildElementalAccumulateReduce(hlfir::AssignOp assig
   for (unsigned i = 0; i < pushed; ++i) indexStack().pop_back();
 
   ASTNode current = acc;
-  for (int i = (int)rank - 1; i >= 0; --i) {
+  for (int i = static_cast<int>(rank) - 1; i >= 0; --i) {
     std::string const ext = resolveExtent(shape, i);
     if (ext == "?") return {};  // unrenderable bound: leave to the materialise path (status quo)
     ASTNode wrap;

@@ -320,16 +320,17 @@ struct ExpandVectorSubscriptScatterPass
       std::string enclName = "anon";
       if (auto fn = op->getParentOfType<mlir::func::FuncOp>()) {
         auto sym = fn.getSymName().str();
-        if (sym.rfind("_QP", 0) == 0)
+        if (sym.rfind("_QP", 0) == 0) {
           enclName = sym.substr(3);
-        else if (sym.rfind("_QM", 0) == 0) {
+        } else if (sym.rfind("_QM", 0) == 0) {
           auto p = sym.find('P', 3);
           if (p != std::string::npos)
             enclName = sym.substr(3, p - 3) + "_" + sym.substr(p + 1);
           else
             enclName = sym.substr(3);
-        } else
+        } else {
           enclName = sym;
+        }
       }
       // Walk the elemental_addr body to find the destination
       // array name (mirrors ExpandVectorSubscriptGather' source name
@@ -405,7 +406,7 @@ struct ExpandVectorSubscriptScatterPass
                                              /*memref=*/alloca.getResult(),
                                              /*shape=*/newShape.getResult(),
                                              /*typeparams=*/mlir::ValueRange{},
-                                             /*uniq_name=*/b.getStringAttr(uniqName));
+                                             /*uniqName=*/b.getStringAttr(uniqName));
       }
       srcRefBase = declOp.getResult(0);
 

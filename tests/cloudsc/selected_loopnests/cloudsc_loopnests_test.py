@@ -39,7 +39,6 @@ def _build(src: str, tmp: Path, *, name: str, entry: str | None = None):
 # sweep sizes: small enough for speed, large enough to avoid masking vectorisation/unrolling bugs
 KLON = 32
 KLEV = 32
-NBLKS = 5
 
 # microphysics species count + named indices into [1..NCLV]
 NCLV = 5

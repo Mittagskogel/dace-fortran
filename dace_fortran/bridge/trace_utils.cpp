@@ -52,7 +52,7 @@ static bool funcHasDeclareTail(mlir::Operation* func, llvm::StringRef tail) {
   if (it == kFuncDeclTails.end()) {
     llvm::StringSet<> tails;
     mlir::cast<mlir::func::FuncOp>(func).walk([&](hlfir::DeclareOp c) {
-      llvm::StringRef un = c.getUniqName().getValue();
+      llvm::StringRef const un = c.getUniqName().getValue();
       auto eP = un.rfind('E');
       if (eP != llvm::StringRef::npos) tails.insert(un.substr(eP + 1));
     });
@@ -290,8 +290,8 @@ mlir::Value traceLocalPointerRebindSource(hlfir::DeclareOp decl) {
 mlir::Value matchAssociatedStatusBoxRef(mlir::arith::CmpIOp cmp, bool* negated) {
   // The intrinsic lowers to a NE-against-null comparison; its negation folds to EQ.
   bool const isEq = cmp.getPredicate() == mlir::arith::CmpIPredicate::eq;
-  if (cmp.getPredicate() != mlir::arith::CmpIPredicate::ne && !(isEq && negated)) return {};
-  if (negated) *negated = isEq;
+  if (cmp.getPredicate() != mlir::arith::CmpIPredicate::ne && (!isEq || negated == nullptr)) return {};
+  if (negated != nullptr) *negated = isEq;
   bool rhsZero = false;
   if (auto c = traceConstInt(cmp.getRhs())) rhsZero = (*c == 0);
   if (!rhsZero) return {};

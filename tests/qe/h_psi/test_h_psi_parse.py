@@ -32,12 +32,8 @@ Two issues sit between the fixture and a clean flang parse:
   ``_fix_change_data_structure_nyfft`` restores ``nyfft = ntask_groups``
   to match.  This is a pruner artifact, not a real-QE bug.
 
-The ``DOUBLE PRECISION :: max`` shadow / ``qvan2`` / BLAS
-(``dgemm`` / ``dger`` / ``dgemv``) implicit-interface argument-kind
-mismatches are warnings under flang-21 and gfortran (the latter with
-``-fallow-argument-mismatch``), not parse errors, so no rewrite is
-required for them; every mismatched call sits behind a gate
-(``IF (okvan)``, ``lda_plus_u``, ...) never taken on the no-op path.
+The COMPLEX-as-REAL arguments QE passes (``gk_sort``, the gamma-point BLAS calls, ``davcio``, ``qvan2``) are
+rewritten to the same arithmetic on the declared types, so nothing needs ``-fallow-argument-mismatch``.
 
 When the f2dace pruning pipeline starts emitting the ``fft_interfaces``
 specifics inline / restoring the ``nyfft`` declaration, the two
@@ -54,6 +50,7 @@ import pytest
 import dace_fortran
 from dace_fortran.external import keep_external
 from tests._util import flang_binary, flang_intrinsic_modules_path
+from tests.qe._conforming import QVAN2_REWRITES, apply_rewrites
 
 _HERE = Path(__file__).resolve().parent
 _SRC = _HERE / "ast_v1_h_psi.f90"
@@ -143,9 +140,142 @@ def _fix_change_data_structure_nyfft(source: str) -> str:
     return source.replace(_NYFFT_BAD, _NYFFT_FIXED)
 
 
+def _make_gk_sort_calls_conforming(source: str) -> str:
+    """Pass ``gk_sort`` arguments of the types its dummies declare.
+
+    QE hands ``gk_sort``'s ``REAL(DP) :: gk(npwx)`` scratch a ``COMPLEX(DP) :: work_space(:)`` and, on the ``nks == 1``
+    branch, its scalar ``INTEGER, INTENT(OUT) :: ngk`` the whole ``ngk(:)`` array; both compile only under
+    ``-fallow-argument-mismatch``. ``work_space`` is used for nothing else, so it is declared ``REAL(DP)``, and the
+    scalar receives ``ngk(1)``, the element the call writes.
+    """
+    source = source.replace(
+        "COMPLEX(KIND = dp), ALLOCATABLE :: work_space(:)", "REAL(KIND = dp), ALLOCATABLE :: work_space(:)"
+    )
+    return source.replace(
+        "CALL gk_sort(xk, ngm, g, ecutwfc / tpiba2, ngk, igk_exx, work_space)",
+        "CALL gk_sort(xk, ngm, g, ecutwfc / tpiba2, ngk(1), igk_exx, work_space)",
+    )
+
+
+# QE's gamma-point BLAS calls read a COMPLEX array as REAL data of twice the length (``2 * npw`` rows), and ``davcio`` /
+# ``qvan2`` take COMPLEX actuals into REAL dummies; all of it compiles only under ``-fallow-argument-mismatch``. Each is
+# rewritten to the same arithmetic on the declared types, as loops over two new indices ``igt`` / ``jgt``: a real
+# ``dgemm('C', 'N')`` over the interleaved (re, im) rows is ``2 * REAL(DOT_PRODUCT(a(:, i), b(:, j)))``, its ``dger`` the
+# G = 0 correction ``- REAL(a(1, i)) * REAL(b(1, j))``, a real ``dgemm('N', 'N')`` of complex ``a`` times real ``b`` is
+# ``SUM(a(i, :) * b(:, j))``; ``qvan2`` is shared with the other QE checkpoints.
+_REAL_TIMES_CONJ = "2.0_dp * REAL(DOT_PRODUCT(beta(1 : npw, igt), psi(1 : npw, jgt)), KIND = dp)"
+_G0_CORRECTION = "REAL(beta(1, igt), KIND = dp) * REAL(psi(1, jgt), KIND = dp)"
+
+
+def _loops(outer: str, inner: str, body: str) -> str:
+    """``body`` inside ``DO jgt = 1, outer`` / ``DO igt = 1, inner``, on one line each."""
+    return f"DO jgt = 1, {outer}\n DO igt = 1, {inner}\n {body}\n END DO\n END DO"
+
+
+#: ``(old, new, occurrences)``
+_GAMMA_TRICK_REWRITES: tuple[tuple[str, str, int], ...] = (
+    ("    INTEGER :: nkb, npwx, m\n", "    INTEGER :: nkb, npwx, m, igt, jgt\n", 4),
+    (
+        "    REAL(KIND = dp), ALLOCATABLE :: ps(:, :)\n",
+        "    REAL(KIND = dp), ALLOCATABLE :: ps(:, :)\n    INTEGER :: igt, jgt\n",
+        2,
+    ),
+    (
+        "    INTEGER :: na, nt, ldim, ldim0, ldimax, ldimaxt\n",
+        "    INTEGER :: na, nt, ldim, ldim0, ldimax, ldimaxt, igt, jgt\n",
+        2,
+    ),
+    (
+        "  INTEGER :: ldim2, ldimx, ldim1, m1, m2, equiv_na2, off1, off2, ig, viz, na1, na2, nt1, nt2\n",
+        "  INTEGER :: ldim2, ldimx, ldim1, m1, m2, equiv_na2, off1, off2, ig, viz, na1, na2, nt1, nt2, igt, jgt\n",
+        1,
+    ),
+    (
+        "  INTEGER :: i\n  CHARACTER(LEN = 2) :: string\n",
+        "  INTEGER :: i, igt, jgt\n  CHARACTER(LEN = 2) :: string\n",
+        4,
+    ),
+    *(
+        (
+            f"CALL {f}('C', 2 * npw, nkb, 2.0_dp, beta, 2 * npwx, psi, 1, 0.0_dp, betapsi, 1)",
+            _loops("1", "nkb", f"betapsi(igt, jgt) = {_REAL_TIMES_CONJ}"),
+            1,
+        )
+        for f in ("mydgemv", "dgemv")
+    ),
+    *(
+        (
+            f"CALL {f}('C', 'N', nkb, m, 2 * npw, 2.0_dp, beta, 2 * npwx, psi, 2 * npwx, 0.0_dp, betapsi, nkb)",
+            _loops("m", "nkb", f"betapsi(igt, jgt) = {_REAL_TIMES_CONJ}"),
+            1,
+        )
+        for f in ("mydgemm", "dgemm")
+    ),
+    (
+        "CALL mydger(nkb, m, - 1.0_dp, beta, 2 * npwx, psi, 2 * npwx, betapsi, nkb)",
+        _loops("m", "nkb", f"betapsi(igt, jgt) = betapsi(igt, jgt) - {_G0_CORRECTION}"),
+        1,
+    ),
+    (
+        "IF (gstart == 2) CALL dger(nkb, m, - 1.0_dp, beta, 2 * npwx, psi, 2 * npwx, betapsi, nkb)",
+        "IF (gstart == 2) THEN\n"
+        + _loops("m", "nkb", f"betapsi(igt, jgt) = betapsi(igt, jgt) - {_G0_CORRECTION}")
+        + "\n END IF",
+        1,
+    ),
+    *(
+        (
+            f"CALL {f}('N', 'N', (2 * n), m, nkb, 1.D0, vkb, (2 * lda), ps, nkb, 1.D0, hpsi, (2 * lda))",
+            _loops("m", "n", "hpsi(igt, jgt) = hpsi(igt, jgt) + SUM(vkb(igt, 1 : nkb) * ps(1 : nkb, jgt))"),
+            1,
+        )
+        for f in ("mydgemm", "dgemm")
+    ),
+    *(
+        (
+            f"CALL mydgemm('N', 'N', 2 * np, mps, ldim, 1.0_dp, wfcu(1, {off}(na) + 1), 2 * ldap, rtemp, ldimaxt, 1.0_dp,"
+            " hpsi, 2 * ldap)",
+            _loops(
+                "mps",
+                "np",
+                f"hpsi(igt, jgt) = hpsi(igt, jgt) + SUM(wfcu(igt, {off}(na) + 1 : {off}(na) + ldim) * rtemp(1 : ldim, jgt))",
+            ),
+            1,
+        )
+        for off in ("offsetu", "offsetu_back", "offsetu_back1")
+    ),
+    *(
+        (
+            f"CALL dgemm('n', 'n', 2 * np, mps, {ldim}, 1.0_dp, wfcuaux, 2 * np, rtemp, ldimx, 1.0_dp, hpsi, 2 * lda)",
+            _loops(
+                "mps", "np", f"hpsi(igt, jgt) = hpsi(igt, jgt) + SUM(wfcuaux(igt, 1 : {ldim}) * rtemp(1 : {ldim}, jgt))"
+            ),
+            1,
+        )
+        for ldim in ("ldim1", "ldim2")
+    ),
+    (
+        "CALL mydgemm('C', 'N', n, m, 2 * ninner, 2.0_dp, u, 2 * ninner, v, 2 * ninner, 0.0_dp, mat, n)",
+        _loops("m", "n", "mat(igt, jgt) = 2.0_dp * REAL(DOT_PRODUCT(u(:, igt), v(:, jgt)), KIND = dp)"),
+        1,
+    ),
+    (
+        "IF (gstart == 2) CALL mydger(n, m, - 1.0_dp, u, 2 * ninner, v, 2 * ninner, mat, n)",
+        "IF (gstart == 2) THEN\n"
+        + _loops("m", "n", "mat(igt, jgt) = mat(igt, jgt) - REAL(u(1, igt), KIND = dp) * REAL(v(1, jgt), KIND = dp)")
+        + "\n END IF",
+        1,
+    ),
+    ("CALL davcio(vect, 2 * nword, unit, nrec, + 1)", "CALL davcio(vect, nword, unit, nrec, + 1)", 1),
+    ("  REAL(KIND = dp), INTENT(INOUT) :: vect(nword)\n", "  COMPLEX(KIND = dp), INTENT(INOUT) :: vect(nword)\n", 1),
+    *QVAN2_REWRITES,
+)
+
+
 def _preprocess(source: str) -> str:
-    """Apply both parse-unblocking rewrites (order-independent)."""
-    return _fix_change_data_structure_nyfft(_restore_fft_interfaces(source))
+    """Apply the parse-unblocking and argument-conforming rewrites (order-independent)."""
+    source = _fix_change_data_structure_nyfft(_restore_fft_interfaces(source))
+    return apply_rewrites(_make_gk_sort_calls_conforming(source), _GAMMA_TRICK_REWRITES)
 
 
 def _make_paw_flag_public(source: str) -> str:
@@ -212,10 +342,8 @@ def test_restore_and_nyfft_unblock_flang_parse(tmp_path):
     arguments`` at every ``invfft`` / ``fwfft`` call site; without
     ``_fix_change_data_structure_nyfft`` it triggers ``No explicit type
     declared for 'nyfft'`` at line 4479.  With both applied flang
-    processes the file to HLFIR with only the documented warnings
-    (``DOUBLE PRECISION :: max`` intrinsic shadow and the BLAS / qvan2
-    implicit-interface argument-kind mismatches), none of which is a
-    parse error.  This pins the preprocessing's correctness
+    processes the file to HLFIR with only the ``DOUBLE PRECISION :: max``
+    intrinsic-shadow warning.  This pins the preprocessing's correctness
     independently of the bridge: when the full SDFG path also lands,
     ``test_h_psi_parses`` flips.
     """
@@ -299,12 +427,6 @@ def _compile_reference(tmp_path):
       The FFT stubs ARE reached (vloc_psi_k_acc), but vrs=0 multiplies
       their roundtrip result by zero before it touches hpsi, so the
       local-potential contribution is exactly 0.
-
-    ``-fallow-argument-mismatch`` downgrades the BLAS / qvan2 argument-kind
-    mismatches (COMPLEX(8) passed to REAL(8)) from a hard error to a
-    warning, matching flang's permissive handling.  Every mismatched call
-    site sits behind a gate (``IF (okvan)`` / ``lda_plus_u`` / ...) and
-    never executes on the no-op path.
     """
     import ctypes
     import subprocess
@@ -322,7 +444,6 @@ def _compile_reference(tmp_path):
             "-fno-fast-math",
             "-ffp-contract=off",
             "-ffree-line-length-none",
-            "-fallow-argument-mismatch",
             str(src_path),
             str(_CALLER),
             "-o",
@@ -409,6 +530,24 @@ def test_h_psi_reference_runs(tmp_path):
     np.testing.assert_array_equal(psi, psi_snapshot)
 
 
+def test_fftx_c2psi_k_tg_indexes_only_by_symbols(tmp_path):
+    """``right_nnr = desc % nnr`` is written by a tasklet, then indexes ``psis``: a subset may name only symbols,
+    so the scalar is staged into one before the access, and the routine compiles."""
+    from dace.sdfg.state import SDFGState
+
+    _keep_unlowerable_routines_external()
+    src = _make_paw_flag_public(_preprocess(_SRC.read_text()))
+    sdfg = dace_fortran.build_sdfg(
+        src, out_dir=str(tmp_path / "sdfg"), entry="fft_helper_subroutines::fftx_c2psi_k_tg", name="c2psi_k_tg"
+    )
+    for state in sdfg.all_states():
+        assert isinstance(state, SDFGState)
+        for edge in state.edges():
+            if edge.data.subset is not None:
+                assert not {str(s) for s in edge.data.subset.free_symbols} & set(sdfg.arrays), edge.data
+    sdfg.compile()
+
+
 # Builds the same SDFG as test_h_psi_parses, then compiles it and its binding.
 @pytest.mark.skip(reason="code generation of h_psi exceeds the CI timeout (view-chain walk in alias inference)")
 @pytest.mark.long
@@ -476,11 +615,6 @@ def test_h_psi_numerical_correctness(tmp_path):
         name="h_psi_lib",
         prelude_sources=[src_path],
         extra_sources=[_CALLER, driver_path],
-        # The pruned ``qvan2`` / BLAS calls have implicit-interface
-        # COMPLEX->REAL arg-kind mismatches behind ``IF(okvan)`` /
-        # ``lda_plus_u`` -- never run on the no-op path; matches the
-        # reference build's permissive flag.
-        extra_flags=["-fallow-argument-mismatch"],
     )
     dace_lib = lib.load()
 

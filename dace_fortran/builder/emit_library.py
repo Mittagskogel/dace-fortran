@@ -266,21 +266,14 @@ def symbolize_subset_indices(
     from dace_fortran.builder.emit_cfg import materialize_indirect_syms
 
     indirect = collect_indirect_in(builder, subsets)
-    scalars: dict[str, str] = {}
-    for sub in subsets:
-        for name in re.findall(r"\b([A-Za-z_]\w*)\b(?!\s*\[)", sub):
-            if name in builder.scalars and name in ctx.sdfg.arrays and name not in scalars:
-                scalars[name] = f"{name}_at{builder.nid()}"
-    if not indirect and not scalars:
+    if not indirect:
         return subsets
-    materialize_indirect_syms(builder, ctx, region, {**scalars, **indirect})
+    materialize_indirect_syms(builder, ctx, region, indirect)
     rewritten = []
     for sub in subsets:
-        # Outermost indirection first: its text contains the inner ones
+        # Outermost indirection first: its text contains the inner ones. A staged scalar is a whole token.
         for expr, sym in reversed(indirect.items()):
-            sub = sub.replace(expr, sym)
-        for name, sym in scalars.items():
-            sub = re.sub(rf"\b{name}\b(?!\s*\[)", sym, sub)
+            sub = sub.replace(expr, sym) if "[" in expr else re.sub(rf"\b{re.escape(expr)}\b(?!\s*\[)", sym, sub)
         rewritten.append(sub)
     return rewritten
 

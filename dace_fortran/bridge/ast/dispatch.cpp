@@ -115,6 +115,50 @@ static void dispatchScfWhileCall(fir::CallOp call, std::vector<ASTNode>& out);
 // Forward decl: walkSCFBeforeRegion dispatches a NESTED scf.while through the same builder as a top-level one.
 static ASTNode buildWhileNode(mlir::scf::WhileOp whileOp);
 
+// Whether ``v`` loads an array element: traceToDecl would stop at the array's declare and drop the subscript.
+static bool isArrayElementLoad(mlir::Value v) {
+  for (int i = 0; i < 32 && v; ++i) {
+    auto* d = v.getDefiningOp();
+    if (!d) break;
+    if (mlir::isa<hlfir::DesignateOp>(d)) return true;
+    if (auto cv = mlir::dyn_cast<fir::ConvertOp>(d)) {
+      v = cv.getValue();
+      continue;
+    }
+    if (auto ld = mlir::dyn_cast<fir::LoadOp>(d)) {
+      v = ld.getMemref();
+      continue;
+    }
+    break;
+  }
+  return false;
+}
+
+// Upper and lower bound of ``doLoop`` on ``n``: traceToDecl is a shortcut for the scalar case (DO i = 1, n), an
+// array-element bound (DO j = row_ptr(i), ...) goes through buildIndexExpr for its subscripted form.
+static void setDoLoopBounds(ASTNode& n, fir::DoLoopOp doLoop) {
+  if (auto c = traceConstInt(doLoop.getUpperBound())) {
+    n.loop_bound = std::to_string(*c);
+  } else if (!isArrayElementLoad(doLoop.getUpperBound())) {
+    n.loop_bound = traceToDecl(doLoop.getUpperBound());
+  }
+  if (n.loop_bound.empty()) n.loop_bound = buildIndexExpr(doLoop.getUpperBound(), 0);
+  // buildIndexExpr suppresses fir.box_dims on a local allocatable (keeps the whole-array-section copy fallback for
+  // arr(:) reads); a loop bound is a scalar, not a subset, so fall back to buildExpr like a scalar sz = size(a)
+  // assignment would.
+  if (n.loop_bound == "?") n.loop_bound = buildExpr(doLoop.getUpperBound(), 0);
+  n.loop_lower = traceLB(doLoop.getLowerBound());
+  if (n.loop_lower < 0) {
+    // Non-constant lower bound: capture the symbolic form so emit_loop can thread it through instead of silently
+    // defaulting to 1.
+    if (!isArrayElementLoad(doLoop.getLowerBound())) {
+      auto sym = traceToDecl(doLoop.getLowerBound());
+      if (!sym.empty()) n.loop_lower_expr = sym;
+    }
+    if (n.loop_lower_expr.empty()) n.loop_lower_expr = buildIndexExpr(doLoop.getLowerBound(), 0);
+  }
+}
+
 std::vector<ASTNode> walkSCFBeforeRegion(mlir::Block& block) {
   std::vector<ASTNode> out;
   // Snapshot scf.condition's break value at body START, before an in-body scf.if mutates it, into __brk_<N>; without it
@@ -328,23 +372,7 @@ std::vector<ASTNode> walkSCFBeforeRegion(mlir::Block& block) {
       ASTNode n;
       n.kind = "loop";
       n.loop_iter = traceLoopIter(doLoop);
-      if (auto c = traceConstInt(doLoop.getUpperBound())) {
-        n.loop_bound = std::to_string(*c);
-      } else {
-        auto sym = traceToDecl(doLoop.getUpperBound());
-        if (!sym.empty())
-          n.loop_bound = sym;
-        else
-          n.loop_bound = buildIndexExpr(doLoop.getUpperBound(), 0);
-      }
-      n.loop_lower = traceLB(doLoop.getLowerBound());
-      if (n.loop_lower < 0) {
-        auto sym = traceToDecl(doLoop.getLowerBound());
-        if (!sym.empty())
-          n.loop_lower_expr = sym;
-        else
-          n.loop_lower_expr = buildIndexExpr(doLoop.getLowerBound(), 0);
-      }
+      setDoLoopBounds(n, doLoop);
       if (auto stepC = traceConstInt(doLoop.getStep())) n.loop_step = *stepC;
       static thread_local int kSCFDoLoopIterCounter = 0;
       bool pushedBlockArg = false;
@@ -772,7 +800,7 @@ static std::string blasScalarArg(mlir::Value v) {
     if (mlir::isa_and_nonnull<fir::AllocaOp>(hd.getMemref().getDefiningOp())) {
       mlir::Value stored;
       int writes = 0;
-      for (mlir::Value r : hd->getResults())
+      for (mlir::Value const r : hd->getResults())
         for (auto* u : r.getUsers()) {
           if (auto st = mlir::dyn_cast<fir::StoreOp>(u); st && st.getMemref() == r) {
             stored = st.getValue();
@@ -886,7 +914,7 @@ static ASTNode buildBlasCallNode(fir::CallOp call, const std::string& routine) {
     n.call_args.push_back(blasScalarArg(args[8]));   // beta
     n.call_args.push_back(blasOperandArg(args[9]));  // y (inout)
     // Sizes, leading dimension and increments, for operands passed by sequence association.
-    for (unsigned i : {1u, 2u, 5u, 7u, 10u}) push(args[i]);  // m, n, lda, incx, incy
+    for (unsigned const i : {1U, 2U, 5U, 7U, 10U}) push(args[i]);  // m, n, lda, incx, incy
     return n;
   }
   if (routine == "dgemm" || routine == "sgemm") {
@@ -895,13 +923,13 @@ static ASTNode buildBlasCallNode(fir::CallOp call, const std::string& routine) {
       n.kind.clear();
       return n;
     }
-    n.expr = blasFlagArg(args[0]) + "," + blasFlagArg(args[1]);  // transA,transB
-    n.call_args.push_back(blasScalarArg(args[5]));               // alpha
-    n.call_args.push_back(blasOperandArg(args[6]));              // A
-    n.call_args.push_back(blasOperandArg(args[8]));              // B
-    n.call_args.push_back(blasScalarArg(args[10]));              // beta
-    n.call_args.push_back(blasOperandArg(args[11]));             // C (inout)
-    for (unsigned i : {2u, 3u, 4u, 7u, 9u, 12u}) push(args[i]);  // m, n, k, lda, ldb, ldc
+    n.expr = blasFlagArg(args[0]) + "," + blasFlagArg(args[1]);        // transA,transB
+    n.call_args.push_back(blasScalarArg(args[5]));                     // alpha
+    n.call_args.push_back(blasOperandArg(args[6]));                    // A
+    n.call_args.push_back(blasOperandArg(args[8]));                    // B
+    n.call_args.push_back(blasScalarArg(args[10]));                    // beta
+    n.call_args.push_back(blasOperandArg(args[11]));                   // C (inout)
+    for (unsigned const i : {2U, 3U, 4U, 7U, 9U, 12U}) push(args[i]);  // m, n, k, lda, ldb, ldc
     return n;
   }
   if (routine == "dnrm2" || routine == "snrm2" || routine == "dasum" || routine == "sasum" || routine == "idamax" ||
@@ -937,11 +965,11 @@ static ASTNode buildBlasCallNode(fir::CallOp call, const std::string& routine) {
       n.kind.clear();
       return n;
     }
-    n.call_args.push_back(blasScalarArg(args[2]));          // alpha
-    n.call_args.push_back(blasOperandArg(args[3]));         // x
-    n.call_args.push_back(blasOperandArg(args[5]));         // y
-    n.call_args.push_back(blasOperandArg(args[7]));         // A (inout)
-    for (unsigned i : {0u, 1u, 4u, 6u, 8u}) push(args[i]);  // m, n, incx, incy, lda
+    n.call_args.push_back(blasScalarArg(args[2]));                // alpha
+    n.call_args.push_back(blasOperandArg(args[3]));               // x
+    n.call_args.push_back(blasOperandArg(args[5]));               // y
+    n.call_args.push_back(blasOperandArg(args[7]));               // A (inout)
+    for (unsigned const i : {0U, 1U, 4U, 6U, 8U}) push(args[i]);  // m, n, incx, incy, lda
     return n;
   }
   if (routine == "dsymv" || routine == "ssymv") {
@@ -1583,7 +1611,7 @@ static ASTNode buildFftw3CallNode(fir::CallOp call, const std::string& fftOp,
   if (fftOp == "fft_plan_2d" || fftOp == "fft_plan_3d") {
     // Signature: fftw_plan_dft_{2,3}d(n0, n1[, n2], in, out, sign, flags)
     int const rank = (fftOp == "fft_plan_2d") ? 2 : 3;
-    if ((int)args.size() < rank + 4) return n;  // safety -- malformed call
+    if (static_cast<int>(args.size()) < rank + 4) return n;  // safety -- malformed call
     FftPlanInfo info;
     info.rank = rank;
     for (int i = 0; i < rank; ++i) {
@@ -1596,7 +1624,7 @@ static ASTNode buildFftw3CallNode(fir::CallOp call, const std::string& fftOp,
     }
     // Sign: FFTW_FORWARD = -1, FFTW_BACKWARD = +1.
     int sign = 0;
-    if (auto c = traceConstInt(args[rank + 2])) sign = (int)*c;
+    if (auto c = traceConstInt(args[rank + 2])) sign = static_cast<int>(*c);
     info.direction = (sign == -1) ? "forward" : "backward";
     // The plan-create call returns the plan; track which user variable it's stored into so the matching execute can
     // look it up.
@@ -1768,8 +1796,8 @@ static std::string reductionIdentityForType(llvm::StringRef baseIdent, mlir::Typ
   if (auto intTy = mlir::dyn_cast<mlir::IntegerType>(elemTy)) {
     unsigned const w = intTy.getWidth();
     if (w > 64) return baseIdent.str();
-    int64_t const maxVal = (w == 64) ? std::numeric_limits<int64_t>::max() : ((int64_t(1) << (w - 1)) - 1);
-    int64_t const minVal = (w == 64) ? std::numeric_limits<int64_t>::min() : (-(int64_t(1) << (w - 1)));
+    int64_t const maxVal = (w == 64) ? std::numeric_limits<int64_t>::max() : ((static_cast<int64_t>(1) << (w - 1)) - 1);
+    int64_t const minVal = (w == 64) ? std::numeric_limits<int64_t>::min() : (-(static_cast<int64_t>(1) << (w - 1)));
     return std::to_string(isInf ? maxVal : minVal);
   }
   return baseIdent.str();
@@ -2161,7 +2189,8 @@ static std::vector<ASTNode> buildDdotDynamicSliceNodes(const std::string& tgt, m
     return true;
   };
 
-  AccessInfo xAcc, yAcc;
+  AccessInfo xAcc;
+  AccessInfo yAcc;
   if (!elemAccess(xVal, xName, xAcc) || !elemAccess(yVal, yName, yAcc)) return {};
 
   ASTNode z;
@@ -2469,46 +2498,7 @@ std::vector<ASTNode> buildAST(mlir::Block& block) {
       ASTNode n;
       n.kind = "loop";
       n.loop_iter = traceLoopIter(doLoop);
-      // Bound resolution: traceToDecl is a shortcut for the scalar case (DO i = 1, n) but wrong for array-element loads
-      // (DO j = row_ptr(i), ...) since the load chain bottoms out at the array's declare -- detect that and route
-      // through buildIndexExpr for the proper subscripted form.
-      auto isArrayElementLoad = [](mlir::Value v) -> bool {
-        for (int i = 0; i < 32 && v; ++i) {
-          auto* d = v.getDefiningOp();
-          if (!d) break;
-          if (mlir::isa<hlfir::DesignateOp>(d)) return true;
-          if (auto cv = mlir::dyn_cast<fir::ConvertOp>(d)) {
-            v = cv.getValue();
-            continue;
-          }
-          if (auto ld = mlir::dyn_cast<fir::LoadOp>(d)) {
-            v = ld.getMemref();
-            continue;
-          }
-          break;
-        }
-        return false;
-      };
-      if (auto c = traceConstInt(doLoop.getUpperBound())) {
-        n.loop_bound = std::to_string(*c);
-      } else if (!isArrayElementLoad(doLoop.getUpperBound())) {
-        n.loop_bound = traceToDecl(doLoop.getUpperBound());
-      }
-      if (n.loop_bound.empty()) n.loop_bound = buildIndexExpr(doLoop.getUpperBound(), 0);
-      // buildIndexExpr suppresses fir.box_dims on a local allocatable (keeps the whole-array-section copy fallback for
-      // arr(:) reads); a loop bound is a scalar, not a subset, so fall back to buildExpr like a scalar sz = size(a)
-      // assignment would.
-      if (n.loop_bound == "?") n.loop_bound = buildExpr(doLoop.getUpperBound(), 0);
-      n.loop_lower = traceLB(doLoop.getLowerBound());
-      if (n.loop_lower < 0) {
-        // Non-constant lower bound: capture the symbolic form so emit_loop can thread it through instead of silently
-        // defaulting to 1.
-        if (!isArrayElementLoad(doLoop.getLowerBound())) {
-          auto sym = traceToDecl(doLoop.getLowerBound());
-          if (!sym.empty()) n.loop_lower_expr = sym;
-        }
-        if (n.loop_lower_expr.empty()) n.loop_lower_expr = buildIndexExpr(doLoop.getLowerBound(), 0);
-      }
+      setDoLoopBounds(n, doLoop);
       // Step: reverse-direction DO i = N, 1, -1 carries step -1 (needed to flip init/cond/update in emit_loop).
       // Constant steps only -- a symbolic step would silently default to 1 and iterate the wrong direction if actually
       // negative, so throw when non-constant and non-trivial (not the default %c1).
@@ -2779,7 +2769,7 @@ std::vector<ASTNode> buildAST(mlir::Block& block) {
                       info.dims.push_back(dim);
                     }
                     int sign = 0;
-                    if (auto c = traceConstInt(args[info.rank + 2])) sign = (int)*c;
+                    if (auto c = traceConstInt(args[info.rank + 2])) sign = static_cast<int>(*c);
                     info.direction = (sign == -1) ? "forward" : "backward";
                     fft_plans[planVar] = info;
                   }

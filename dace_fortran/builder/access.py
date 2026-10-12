@@ -350,11 +350,11 @@ def _reserved_rewrite(name: str) -> str:
     """Map a single identifier to its ``program_<name>`` form when it
     collides with a sympy attribute (``im`` -> ``sympy.im`` is a
     ``FunctionClass``; arithmetic against a ``Symbol`` then fails).
-    See ``builder.__init__.RESERVED_DACE_NAMES`` for the full set.
+    See ``builder.__init__.SYMPY_RESERVED_NAMES`` for the full set.
     Imported lazily to avoid a circular import at module load."""
-    from dace_fortran.builder import DACE_NAME_PREFIX, RESERVED_DACE_NAMES
+    from dace_fortran.builder import DACE_NAME_PREFIX, SYMPY_RESERVED_NAMES
 
-    if name in RESERVED_DACE_NAMES:
+    if name in SYMPY_RESERVED_NAMES:
         return DACE_NAME_PREFIX + name
     return name
 
@@ -594,6 +594,12 @@ def indirect_exprs_in(builder: SDFGBuilder, exprs: Iterable[str]) -> list[Indire
 
     for expr in exprs:
         _visit(expr)
+        # A data scalar in an index (``psis(... + right_nnr * idx)``, ``right_nnr = desc % nnr`` written by a
+        # tasklet) is no symbol a subset may name: stage it into one like an indirect read.
+        for name in re.findall(r"\b[A-Za-z_]\w*\b", expr if isinstance(expr, str) else ""):
+            if name in builder.scalars and name not in builder.symbols and name not in seen:
+                seen.add(name)
+                out.append(IndirectExpr(name, name))
 
     return out
 
@@ -668,7 +674,11 @@ def _offset_token(arr: str, dim: int) -> str:
 
 
 def array_read_to_dace_expr(
-    builder: SDFGBuilder, assign_node: NodeLike, iter_map: dict[str, str], sdfg: SDFG | None = None
+    builder: SDFGBuilder,
+    assign_node: NodeLike,
+    iter_map: dict[str, str],
+    sdfg: SDFG | None = None,
+    indirect_syms: dict[str, str] | None = None,
 ) -> str:
     """Render a scalar-target assign's RHS as a DaCe interstate-edge
     expression, lifting EVERY array read to the uniform offset-symbol
@@ -708,9 +718,11 @@ def array_read_to_dace_expr(
             # only a bare array-name occurrence maps to a read access (in
             # the order the bridge lists them).
             already_subscripted = j < len(expr) and expr[j] == "["
-            if not already_subscripted and ri < len(reads) and tok == reads[ri].array_name:
-                ac = reads[ri]
-                ri += 1
+            # Reads only an index nests (``idx(mc)`` in ``i1 = in1(idx(mc))``) have no token of their own: skip them.
+            k = next((k for k in range(ri, len(reads)) if reads[k].array_name == tok), None)
+            if not already_subscripted and k is not None:
+                ac = reads[k]
+                ri = k + 1
                 # Section-alias dummy (``igkp`` <- ``igk_exx(:, current_k)``):
                 # resolve to the SOURCE array + spliced index list so the
                 # interstate-edge read references real storage.  The alias has
@@ -720,7 +732,10 @@ def array_read_to_dace_expr(
                 # free symbols.  QE ``init_us_2``'s ``iv = igk_(ig)``
                 # value-symbol read, reached after ``add_nlxx_pot`` inlines it.
                 eff_name, eff_ac = resolve_section_alias(builder, ac.array_name, ac)
-                parts = [_remap_token(raw, iter_map) for raw in (eff_ac.index_exprs or [])]
+                parts = [
+                    _remap_token(_apply_indirect_syms(raw, indirect_syms or {}), iter_map)
+                    for raw in (eff_ac.index_exprs or [])
+                ]
                 out.append(_format_offset_subset(eff_name, parts))
             elif not already_subscripted and sdfg is not None and sdfg_is_len1_array(sdfg, tok):
                 # A logical scalar kept as a length-1 Array (inout/out module
@@ -736,6 +751,15 @@ def array_read_to_dace_expr(
             out.append(ch)
             i += 1
     return "".join(out)
+
+
+def _apply_indirect_syms(part: str, indirect_syms: dict) -> str:
+    """``part`` with each staged read it nests (``idx[mc]``, a data scalar) replaced by its symbol."""
+    part = _rewrite_inner_indirects(part, indirect_syms)
+    for name, sym in indirect_syms.items():
+        if "[" not in name:
+            part = re.sub(rf"\b{re.escape(name)}\b", sym, part)
+    return part
 
 
 def _rewrite_inner_indirects(part: str, indirect_syms: dict) -> str:
@@ -892,6 +916,9 @@ def build_memlet_index(
                         break  # positions invalidated; rescan
                 if not replaced:
                     break
+
+        # Staged data scalars (see :func:`indirect_exprs`), by whole word.
+        expr = _apply_indirect_syms(expr, {k: v for k, v in indirect_syms.items() if "[" not in k})
 
         # Indirect: substitute the minted symbol that holds the
         # Fortran 1-based runtime value, then offset uniformly.

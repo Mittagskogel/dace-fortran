@@ -32,6 +32,7 @@ import pytest
 
 import dace_fortran
 from tests._util import flang_binary, flang_intrinsic_modules_path
+from tests.qe._conforming import QVAN2_REWRITES, apply_rewrites
 
 _HERE = Path(__file__).resolve().parent
 _SRC = _HERE / "ast_v1_vexx_bp_k_gpu.f90"
@@ -95,6 +96,12 @@ def _restore_fft_interfaces(source: str) -> str:
             "Inspect ast_v1_vexx_bp_k_gpu.f90 and update the anchor."
         )
     return out
+
+
+def _preprocess(source: str) -> str:
+    """:func:`_restore_fft_interfaces` plus the ``qvan2`` COMPLEX-as-REAL rewrite, so gfortran needs no
+    ``-fallow-argument-mismatch``."""
+    return apply_rewrites(_restore_fft_interfaces(source), QVAN2_REWRITES)
 
 
 def _make_paw_flag_public(source: str) -> str:
@@ -163,13 +170,13 @@ def test_restore_fft_interfaces_unblocks_flang_parse(tmp_path):
 
     Without the rewrite, every invfft/fwfft call site triggers "No specific
     subroutine of generic 'invfft' matches the actual arguments". The rewrite
-    leaves only documented warnings (DOUBLE PRECISION :: max shadow, qvan2
-    arg-kind mismatch), neither a parse error. Pins preprocessing correctness
+    leaves only the documented DOUBLE PRECISION :: max shadow warning, not a
+    parse error. Pins preprocessing correctness
     independently of the bridge.
     """
     import subprocess
 
-    src = _restore_fft_interfaces(_SRC.read_text())
+    src = _preprocess(_SRC.read_text())
     rewritten = tmp_path / "vexx_bp_k_gpu_rewritten.F90"
     rewritten.write_text(src)
     out = tmp_path / "qe.hlfir"
@@ -196,7 +203,7 @@ def test_vexx_bp_k_gpu_parses(tmp_path):
     """End-to-end SDFG build for vexx_bp_k_gpu: QE checkpoint parses, inlines,
     and lowers to a validated SDFG. Previously xfailed on KeyError: 'vcut_a'
     (module-level struct global not flattened), now closed."""
-    src = _restore_fft_interfaces(_SRC.read_text())
+    src = _preprocess(_SRC.read_text())
     sdfg = dace_fortran.build_sdfg(src, out_dir=str(tmp_path / "sdfg"), entry=_ENTRY, name="vexx_bp_k_gpu")
     sdfg.validate()
     assert sdfg is not None
@@ -216,15 +223,11 @@ def _compile_reference(tmp_path):
     * run_vexx_bp_k_gpu_c(lda, n, m, psi*, hpsi*) -- forwards to
       exx_bp::vexx_bp_k_gpu with OPTIONAL becpsi omitted.
     * linker-only stubs for fwfft_y/invfft_y/f_tcpu/f_wall (never entered).
-
-    -fallow-argument-mismatch downgrades the qvan2 arg-kind mismatch
-    (COMPLEX(8) passed to REAL(8)) to a warning; that call site sits behind
-    IF (okvan) and never executes.
     """
     import ctypes
     import subprocess
 
-    src = _restore_fft_interfaces(_SRC.read_text())
+    src = _preprocess(_SRC.read_text())
     src_path = tmp_path / "qe_ref.f90"
     src_path.write_text(src)
     libpath = tmp_path / "libvexx_ref.so"
@@ -237,7 +240,6 @@ def _compile_reference(tmp_path):
             "-fno-fast-math",
             "-ffp-contract=off",
             "-ffree-line-length-none",
-            "-fallow-argument-mismatch",
             str(src_path),
             str(_CALLER),
             "-o",
@@ -328,7 +330,7 @@ def test_vexx_bp_k_gpu_numerical_correctness(tmp_path):
     run(lda, n, m, psi_ref.ctypes.data, hpsi_ref.ctypes.data)
 
     # --- SDFG-via-binding ---
-    src = _make_paw_flag_public(_restore_fft_interfaces(_SRC.read_text()))
+    src = _make_paw_flag_public(_preprocess(_SRC.read_text()))
     src_path = tmp_path / "qe.f90"
     src_path.write_text(src)
 
@@ -349,9 +351,6 @@ def test_vexx_bp_k_gpu_numerical_correctness(tmp_path):
         name="vexx_lib",
         prelude_sources=[src_path],
         extra_sources=[_CALLER, driver_path],
-        # pruned qvan2 has an implicit-interface COMPLEX->REAL arg-kind
-        # mismatch (qg) behind IF(okvan) -- never run on the no-op path.
-        extra_flags=["-fallow-argument-mismatch"],
     )
     dace_lib = lib.load()
 
