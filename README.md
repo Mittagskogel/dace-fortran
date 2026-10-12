@@ -10,6 +10,11 @@ from the test harnesses under `tests/` and checks it twice: the pre- and post-op
 bit, and the outputs must match the gfortran build of the same source. Run them from the repository root after
 [installing](#install--build); `tests/readme_quickstart_test.py` executes exactly these blocks.
 
+`samples/` holds the complete reproducers, one script per kernel that ingests, optimizes, runs and verifies it, and
+checks how many maps the pipeline forms: `python -m samples.graupel`, `python -m samples.cloudsc_monolith` (the
+whole scheme in one file, `tests/cloudsc/full/cloudsc.F90`) and `python -m samples.velocity_tendencies` (ICON's
+dycore kernel, through its generated Fortran binding). The e2e tests under `tests/e2e/` run the same scripts.
+
 <!-- optimize-graupel:begin -->
 ```python
 import tempfile
