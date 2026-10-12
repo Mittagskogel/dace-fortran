@@ -651,7 +651,7 @@ def build_wrapper_body(
                 # Kernel ALLOCATEs this global itself: host alias holds no data on
                 # entry (reading it is UB); write-back assigns it on exit.
                 if oa.rank > 0:
-                    dims = ", ".join(oa.shape) if oa.shape else "1"
+                    dims = _position_symbols_as_elements(", ".join(oa.shape), frozen) if oa.shape else "1"
                     body.append(f"    allocate({oa.sdfg_name}({dims}))")
                 body.append(f"    ! {oa.sdfg_name}: kernel-allocated, no copy-in (host alias unallocated on entry)")
             elif deferred:
@@ -676,7 +676,7 @@ def build_wrapper_body(
                 # concrete extent, NOT size(alias) -- alias may be a scalar, and
                 # size(scalar) is a hard Fortran error.
                 if oa.rank > 0:
-                    dims = ", ".join(oa.shape) if oa.shape else "1"
+                    dims = _position_symbols_as_elements(", ".join(oa.shape), frozen) if oa.shape else "1"
                     body.append(f"    allocate({oa.sdfg_name}({dims}))")
                 body.append(f"    {oa.sdfg_name} = {alias}")
 
@@ -698,6 +698,7 @@ def build_wrapper_body(
             # Fall back to (1,..) only when the shape isn't symbol-recoverable.
             shape = tuple(str(s) for s in (a.shape or ()))
             dims = ", ".join(shape) if len(shape) == a.rank and all(shape) else ", ".join("1" for _ in range(a.rank))
+            dims = _position_symbols_as_elements(dims, frozen)
             body.append(f"    allocate({a.sdfg_name}({dims}))")
             body.append(f"    {a.sdfg_name} = {_zero_literal(a.dtype)}")
 
@@ -1255,6 +1256,29 @@ def _extra_local_symbols(frozen: FrozenSignature, iface: OriginalInterface, plan
             if ident.match(s) and s not in declared and s not in out:
                 out[s] = ("integer(c_int)", _rhs(s, "int32", True))
     return [(n, ft, rhs) for n, (ft, rhs) in out.items()]
+
+
+_POSITION_SYMBOL = re.compile(r"\b__sym_(\w+)\b")
+
+
+def _position_symbols_as_elements(expr: str, frozen: FrozenSignature) -> str:
+    """``expr`` with each position symbol ``__sym_<array>_<i1>_..._<in>`` (the SDFG's name for the constant-index
+    element ``<array>(i1, ..., in)``) spelled as that element of the binding's local ``<array>``.
+
+    A leading ``_`` is no Fortran identifier; the element reads the value the symbol was minted from. The longest
+    array arg name of matching rank wins.
+    """
+    ranks = {a.sdfg_name: a.rank for a in frozen.args if a.kind is FrozenArgKind.ARRAY}
+
+    def element(m: re.Match[str]) -> str:
+        parts = m.group(1).split("_")
+        for k in range(len(parts) - 1, 0, -1):
+            array, indices = "_".join(parts[:k]), parts[k:]
+            if ranks.get(array) == len(indices) and all(i.isdigit() for i in indices):
+                return f"{array}({', '.join(indices)})"
+        return m.group(0)
+
+    return _POSITION_SYMBOL.sub(element, expr)
 
 
 def _zero_literal(dtype: str) -> str:

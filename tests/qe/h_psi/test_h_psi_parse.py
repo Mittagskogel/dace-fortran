@@ -299,6 +299,19 @@ def _make_paw_flag_public(source: str) -> str:
     return source.replace("LOGICAL, PRIVATE :: paw_has_init_paw_fockrnl", "LOGICAL, PUBLIC :: paw_has_init_paw_fockrnl")
 
 
+def _make_igtongl_unprotected(source: str) -> str:
+    """Drop ``PROTECTED`` from ``gvect::igtongl`` so the binding can write it back.
+
+    The kernel reaches ``gvect_init``, which allocates ``igtongl``, so the binding copies it back on exit; Fortran
+    forbids defining a ``PROTECTED`` variable outside its module. Like ``PRIVATE``, the attribute does not survive into
+    FIR, so only the source can resolve it.
+    """
+    old = "INTEGER, ALLOCATABLE, TARGET, PROTECTED :: igtongl(:)"
+    if source.count(old) != 1:
+        raise ValueError(f"expected one {old!r}")
+    return source.replace(old, "INTEGER, ALLOCATABLE, TARGET :: igtongl(:)")
+
+
 # C-callable driver that initialises the QE module state (shared with the
 # gfortran reference via ``init_h_psi_state_c``), then dispatches into the
 # SDFG through its GENERATED Fortran binding ``h_psi_dace`` rather than the
@@ -594,7 +607,7 @@ def test_h_psi_numerical_correctness(tmp_path):
     run(lda, n, m, psi_ref.ctypes.data, hpsi_ref.ctypes.data)
 
     # --- SDFG-via-binding ---
-    src = _make_paw_flag_public(_preprocess(_SRC.read_text()))
+    src = _make_igtongl_unprotected(_make_paw_flag_public(_preprocess(_SRC.read_text())))
     src_path = tmp_path / "qe.f90"
     src_path.write_text(src)
 

@@ -914,6 +914,8 @@ def run_kernel_e2e(
         np.savez(out / "mesh_buffers.npz", **mesh_buffers)
     env = dict(os.environ)
     env["TMPDIR"] = str(out)
+    # Per-run build folder: concurrent runs of same-named SDFGs (both velocity layouts) would build over each other.
+    env["DACE_default_build_folder"] = str(out / ".dacecache")
     env.setdefault("UCX_VFS_ENABLE", "n")
     proc = subprocess.run(
         [
