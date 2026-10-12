@@ -119,5 +119,8 @@ def test_nonblocking_ring_numeric(tmp_path: Path):
 
 
 if __name__ == "__main__":
-    test_ring_send_recv_numeric(Path("/tmp/mpi_ring_e2e"))
-    test_nonblocking_ring_numeric(Path("/tmp/mpi_nbring_e2e"))
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        test_ring_send_recv_numeric(Path(tmp) / "mpi_ring_e2e")
+        test_nonblocking_ring_numeric(Path(tmp) / "mpi_nbring_e2e")

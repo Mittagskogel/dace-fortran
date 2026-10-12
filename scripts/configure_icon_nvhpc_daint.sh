@@ -73,10 +73,12 @@ if [ "${GPU}" = 1 ]; then
   # owns the parallelism), CUDA from the NVHPC bundle next to nvfortran.
   # spack-load of gcc16 exports CUDA_HOME/NVHPC_CUDA_HOME=spack cuda-13.3 (its
   # nvptx dep) and makes g++16 nvcc's host compiler -- cuda13.3 rejects gcc>15,
-  # so unset the redirects and pin the host to system g++-13.
+  # so unset the redirects and pin the host to the system g++-13 (CUDA_HOST_CXX overrides).
   unset CUDA_HOME NVHPC_CUDA_HOME CUDA_ROOT CUDA_PATH || true
+  CUDA_HOST_CXX="${CUDA_HOST_CXX:-$(command -v g++-13 || true)}"
+  [ -n "${CUDA_HOST_CXX}" ] || { echo "ERROR: no g++-13 on PATH for nvcc's host compiler; set CUDA_HOST_CXX" >&2; exit 1; }
   EXTRA_CONFIG_ARGS="${EXTRA_CONFIG_ARGS} --enable-gpu=openacc+cuda --disable-loop-exchange --disable-openmp"
-  CONFIG_VARS+=("CUDACXX=${NVHPC_BIN}/nvcc" "CUDAFLAGS=-arch=sm_90 -O3 -ccbin /usr/bin/g++-13")
+  CONFIG_VARS+=("CUDACXX=${NVHPC_BIN}/nvcc" "CUDAFLAGS=-arch=${CUDA_ARCH:-sm_90} -O3 -ccbin ${CUDA_HOST_CXX}")
   # nvfortran does not search the bundled CUDA lib dir at link time.
   CUDA_LIB64="${NVHPC_BIN%/compilers/bin}/cuda/lib64"
   LDFLAGS="${LDFLAGS} -L${CUDA_LIB64} -Wl,-rpath,${CUDA_LIB64}"

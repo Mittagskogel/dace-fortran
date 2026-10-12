@@ -26,6 +26,16 @@ NUMPY_INTS_TYPES = Union[np.int8, np.int16, np.int32, np.int64]
 NUMPY_REALS_TYPES = Union[np.float32, np.float64]
 NUMPY_TYPES = Union[NUMPY_INTS_TYPES, NUMPY_REALS_TYPES, np.bool_]
 
+#: Fortran INTEGER / REAL kind (its byte width) -> the numpy type holding it.
+INT_KIND_TYPES: dict[int, type[NUMPY_INTS_TYPES]] = {1: np.int8, 2: np.int16, 4: np.int32, 8: np.int64}
+REAL_KIND_TYPES: dict[int, type[NUMPY_REALS_TYPES]] = {4: np.float32, 8: np.float64}
+#: Kind of a literal with no ``_kind`` suffix (``1``, ``1.0``).
+DEFAULT_KIND = 4
+#: Kind a REAL literal reaches through a ``D`` exponent (``1.0D0``).
+DOUBLE_KIND = 8
+#: ISO_C_BINDING kind names -> their kind.
+ISO_C_KINDS = {"c_int": 4, "c_float": 4, "c_double": 8}
+
 # Type Aliases for fparser literal nodes.
 LITERAL_TYPES = Union[
     f03.Real_Literal_Constant,
@@ -202,12 +212,12 @@ def numpy_type_to_literal(val: NUMPY_TYPES) -> LITERAL_TYPES:
     if is_numpy_int(val):
         bytez = count_bytes(type(val))
         if val < 0:
-            return f03.Signed_Int_Literal_Constant(f"{val}" if bytez == 4 else f"{val}_{bytez}")
-        return f03.Int_Literal_Constant(f"{val}" if bytez == 4 else f"{val}_{bytez}")
+            return f03.Signed_Int_Literal_Constant(f"{val}" if bytez == DEFAULT_KIND else f"{val}_{bytez}")
+        return f03.Int_Literal_Constant(f"{val}" if bytez == DEFAULT_KIND else f"{val}_{bytez}")
     if is_numpy_real(val):
         bytez = count_bytes(type(val))
         valstr = str(val)
-        if bytez == 8:
+        if bytez == DOUBLE_KIND:
             valstr = valstr.replace("e", "D") if "e" in valstr else f"{valstr}D0"
         if val < 0:
             return f03.Signed_Real_Literal_Constant(valstr)
@@ -217,18 +227,6 @@ def numpy_type_to_literal(val: NUMPY_TYPES) -> LITERAL_TYPES:
 
 def count_bytes(t: type[NUMPY_TYPES]) -> int:
     """Byte size of a numpy numeric type."""
-    if t is np.int8:
-        return 1
-    if t is np.int16:
-        return 2
-    if t is np.int32:
-        return 4
-    if t is np.int64:
-        return 8
-    if t is np.float32:
-        return 4
-    if t is np.float64:
-        return 8
-    if t is np.bool_:
-        return 1
-    raise ValueError(f"{t} is not an expected type; expected {NUMPY_TYPES}")
+    if t not in (*INT_KIND_TYPES.values(), *REAL_KIND_TYPES.values(), np.bool_):
+        raise ValueError(f"{t} is not an expected type; expected {NUMPY_TYPES}")
+    return np.dtype(t).itemsize

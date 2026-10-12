@@ -58,14 +58,8 @@ MODULE mpi
 END MODULE mpi
 """
 
-# Last-resort guesses, used only when no MPI wrapper is on PATH to ask. Distro paths
-# go stale and are arch-specific, so they are the fallback, never the first probe.
-OPENMPI_INCLUDE_FALLBACKS = (
-    "/usr/lib/x86_64-linux-gnu/openmpi/include",
-    "/usr/include/openmpi",
-    "/usr/local/include/openmpi",
-    "/opt/openmpi/include",
-)
+#: Seconds a wrapper's ``--showme`` query may take before it is treated as absent.
+_MPI_PROBE_TIMEOUT_S = 10
 
 #: Wrapper invocations that print an OpenMPI install's include dirs.
 _MPI_INCDIR_PROBES = (
@@ -78,16 +72,17 @@ _MPI_INCDIR_PROBES = (
 def openmpi_include_candidates() -> tuple[str, ...]:
     """Every directory that might hold OpenMPI's ``mpif-*.h``, best guess first.
 
-    Asks the installed wrapper (``mpicc --showme:incdirs``) before falling back to
-    ``MPI_HOME``/``OPAL_PREFIX`` and finally the hardcoded distro paths, so a module-loaded
-    or site-local OpenMPI is found rather than whichever one the distro happens to ship.
+    Asks the installed wrapper (``mpicc --showme:incdirs``), then ``MPI_HOME``/``OPAL_PREFIX``/``MPI_ROOT``, so a
+    module-loaded or site-local OpenMPI is found rather than whichever one the distro happens to ship.
     """
     found: list[str] = []
     for exe, flag in _MPI_INCDIR_PROBES:
         if shutil.which(exe) is None:
             continue
         try:
-            out = subprocess.run([exe, flag], capture_output=True, text=True, timeout=10, check=True).stdout
+            out = subprocess.run(
+                [exe, flag], capture_output=True, text=True, timeout=_MPI_PROBE_TIMEOUT_S, check=True
+            ).stdout
         except (subprocess.SubprocessError, OSError):
             continue
         found.extend(out.split())
@@ -98,7 +93,6 @@ def openmpi_include_candidates() -> tuple[str, ...]:
         if prefix:
             found.append(str(Path(prefix) / "include"))
 
-    found.extend(OPENMPI_INCLUDE_FALLBACKS)
     # dict preserves first-seen order; a duplicate probe must not reorder the list.
     return tuple(dict.fromkeys(found))
 

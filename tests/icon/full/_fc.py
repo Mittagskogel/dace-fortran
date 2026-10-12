@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from dace_fortran.llvm_toolchain import flang_names
+from dace_fortran.llvm_toolchain import find_flang, flang_names, llvm_prefix
 
 # LLVM-flang binary names probed in order, for every supported LLVM major; distributions differ on which spelling is canonical.
 _FLANG_NAMES = tuple(flang_names())
@@ -91,24 +91,16 @@ def cpp_flag(fc_name: str) -> str:
     return "-Mpreprocess" if fc_name == "nvfortran" else "-cpp"
 
 
-# standard locations for a user-local libflang_rt.runtime.a; surfaced via LIBRARY_PATH so flang-new-21's linker finds it automatically.
-_FLANG_RT_DIRS = (
-    str(Path.home() / ".local/llvm-flang-rt-21/lib/clang/21/lib/x86_64-unknown-linux-gnu"),
-    str(Path.home() / ".local/lib/clang/21/lib/x86_64-unknown-linux-gnu"),
-    # ROCm runtime is ABI-compatible with flang-21; probed last so a user-local build wins when both are present.
-    "/opt/rocm-7.2.0/lib/llvm/lib/clang/22/lib/x86_64-unknown-linux-gnu",
-)
-
-
 def find_flang_runtime_dir() -> str | None:
-    """First directory with libflang_rt.runtime.a (flang-21's -lflang_rt.runtime archive), or None.  Tests linking with flang-new-21 use this to skip cleanly or inject LIBRARY_PATH."""
-    for d in _FLANG_RT_DIRS:
-        if (Path(d) / "libflang_rt.runtime.a").is_file():
-            return d
-    # apt llvm-{21,22} layout: target-triple subdir spelling varies, so glob for it (CI's llvm-21 install keeps the archive here).
-    for base in Path("/usr/lib").glob("llvm-2*/lib/clang/*/lib/*"):
-        if (base / "libflang_rt.runtime.a").is_file():
-            return str(base)
+    """Directory holding ``libflang_rt.runtime.a`` (flang-21's ``-lflang_rt.runtime`` archive) in the found flang's
+    prefix, or None.  Tests linking with flang-new-21 use this to skip cleanly or inject LIBRARY_PATH."""
+    flang = find_flang()
+    if flang is None:
+        return None
+    # The resource dir's major and target-triple spelling vary across installs, so glob for them.
+    for d in sorted(llvm_prefix(flang).glob("lib/clang/*/lib/*")):
+        if (d / "libflang_rt.runtime.a").is_file():
+            return str(d)
     return None
 
 
@@ -127,7 +119,5 @@ def env_with_flang_runtime(fc_name: str) -> dict:
 FLANG_RT_HINT = (
     "flang-new-21 needs ``libflang_rt.runtime.a`` for a full link; "
     "build it locally with the recipe at the top of the README's "
-    "Fortran-compiler matrix section, or symlink ROCm's "
-    "/opt/rocm-7.2.0/...x86_64-unknown-linux-gnu/libflang_rt.runtime.a "
-    "into a $LIBRARY_PATH directory."
+    "Fortran-compiler matrix section into the flang install's resource directory."
 )

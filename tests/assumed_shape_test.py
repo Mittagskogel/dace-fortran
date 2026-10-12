@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from dace_fortran.builder import SDFGBuilder
+from tests._helpers import import_extension
 from tests._util import flang_binary
 
 # Two files (assumed-shape callee + custom-bounded driver) exercise the
@@ -62,10 +63,7 @@ def _f2py_build(srcs: list[str], out_dir: Path, mod_name: str):
         [sys.executable, "-m", "numpy.f2py", "-c", str(combined), "-m", mod_name, "--quiet"],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(mod_name)
-    return sys.modules[mod_name]
+    return import_extension(out_dir, mod_name)
 
 
 def test_inlined_hlfir_has_assumed_shape_alias_declare(tmp_path: Path):

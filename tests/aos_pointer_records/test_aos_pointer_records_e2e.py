@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 import dace_fortran
+from tests._helpers import import_extension
 
 _HERE = Path(__file__).resolve().parent
 
@@ -28,10 +29,7 @@ def _f2py(src: Path, out_dir: Path, mod_name: str, *, kind_map: dict | None = No
         as_dict = {"real": dict(kind_map.items())}
         (out_dir / ".f2py_f2cmap").write_text(repr(as_dict))
     subprocess.check_call([sys.executable, "-m", "numpy.f2py", "-c", str(src), "-m", mod_name, "--quiet"], cwd=out_dir)
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(mod_name)
-    return sys.modules[mod_name]
+    return import_extension(out_dir, mod_name)
 
 
 def _sdfg(src_text: str, out_dir: Path, entry: str, name: str):

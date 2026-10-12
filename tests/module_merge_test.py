@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from dace_fortran.preprocess import merge_used_modules
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 # Transitive project: physmod  <-  drivermod (use physmod)  <-  drv (use drivermod)
@@ -74,10 +75,7 @@ def _f2py(out_dir: Path, mod: str, *src_files: Path):
         ],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(mod)
-    return sys.modules[mod]
+    return import_extension(out_dir, mod)
 
 
 def _proj(d: Path, **files: str) -> Path:

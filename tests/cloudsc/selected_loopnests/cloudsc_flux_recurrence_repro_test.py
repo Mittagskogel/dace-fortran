@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 _SRC = """
@@ -82,10 +83,7 @@ def _f2py_build(src_text: str, out_dir: Path, mod_name: str):
         [sys.executable, "-m", "numpy.f2py", "-c", f"{mod_name}.f90", "-m", mod_name, "--quiet"],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(mod_name)
-    return sys.modules[mod_name]
+    return import_extension(out_dir, mod_name)
 
 
 def test_cloudsc_flux_recurrence(tmp_path: Path):

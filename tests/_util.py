@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from dace_fortran.llvm_toolchain import flang_names, intrinsic_modules_path
@@ -54,7 +55,7 @@ BITEXACT_CPU_ARGS = (
 
 # when set, build_sdfg(...).build() dumps its SDFG here; "1"/"true"/"yes" means _DEFAULT_DUMP_DIR.
 _DUMP_ENV = "__DACE_HLFIR_GEN_TEST_SDFGS"
-_DEFAULT_DUMP_DIR = Path("/tmp/hlfir_test_sdfgs")
+_DEFAULT_DUMP_DIR = Path(tempfile.gettempdir()) / "hlfir_test_sdfgs"
 
 
 def _dump_dir() -> Path | None:

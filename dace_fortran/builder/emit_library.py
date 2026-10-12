@@ -639,6 +639,11 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
             return Memlet(f"{name}[{sub}]")
         return Memlet.from_array(name, ctx.sdfg.arrays[name])
 
+    def _trailing_comm(operands: int) -> str | None:
+        """The user communicator the bridge appends after the call's ``operands`` fixed arguments, or ``None`` for
+        the default ``MPI_COMM_WORLD``."""
+        return n.call_args[operands] if len(n.call_args) > operands else None
+
     def _wire_user_comm(node: Node, comm: str | None) -> None:
         """Thread an optional user communicator into an MPI node via a ``_comm``
         input connector carrying an ``opaque(MPI_Comm)`` value.
@@ -745,7 +750,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         # Thread the trailing user communicator (a non-default ``comm`` the
         # bridge appended at ``call_args[2]``); default ``MPI_COMM_WORLD`` runs
         # on the node's implicit world comm.
-        _wire_user_comm(node, n.call_args[2] if len(n.call_args) > 2 else None)
+        _wire_user_comm(node, _trailing_comm(operands=2))
         return
 
     if n.callee == "mpi_barrier":
@@ -772,7 +777,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_node(node)
         state.add_edge(state.add_read(sendbuf), None, node, "_inbuffer", _buf_memlet(sendbuf, 0))
         state.add_edge(node, "_outbuffer", state.add_write(recvbuf), None, _buf_memlet(recvbuf, 1))
-        _wire_user_comm(node, n.call_args[3] if len(n.call_args) > 3 else None)
+        _wire_user_comm(node, _trailing_comm(operands=3))
         return
 
     if n.callee == "mpi_bcast":
@@ -787,7 +792,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_edge(state.add_read(buffer), None, node, "_inbuffer", _buf_memlet(buffer, 0))
         state.add_edge(state.add_read(root), None, node, "_root", Memlet.from_array(root, rdesc))
         state.add_edge(node, "_outbuffer", state.add_write(buffer), None, _buf_memlet(buffer, 0))
-        _wire_user_comm(node, n.call_args[2] if len(n.call_args) > 2 else None)
+        _wire_user_comm(node, _trailing_comm(operands=2))
         return
 
     if n.callee == "mpi_comm_rank":
@@ -802,7 +807,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_memlet_path(
             node, acc(builder, state, rank), src_conn="_rank", memlet=Memlet.simple(rank, "0:1", num_accesses=1)
         )
-        _wire_user_comm(node, n.call_args[1] if len(n.call_args) > 1 else None)
+        _wire_user_comm(node, _trailing_comm(operands=1))
         bind_query_symbol(builder, ctx, region, rank, rank_sym)
         return
 
@@ -817,7 +822,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_memlet_path(
             node, acc(builder, state, size), src_conn="_size", memlet=Memlet.simple(size, "0:1", num_accesses=1)
         )
-        _wire_user_comm(node, n.call_args[1] if len(n.call_args) > 1 else None)
+        _wire_user_comm(node, _trailing_comm(operands=1))
         bind_query_symbol(builder, ctx, region, size, size_sym)
         return
 
@@ -838,7 +843,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         cname = f"__newcomm_{newcomm}_{builder.nid()}"
         ctx.sdfg.add_scalar(cname, dace.dtypes.opaque("MPI_Comm"), transient=True)
         state.add_edge(node, "_newcomm", state.add_write(cname), None, Memlet(data=cname, subset="0"))
-        _wire_user_comm(node, n.call_args[3] if len(n.call_args) > 3 else None)
+        _wire_user_comm(node, _trailing_comm(operands=3))
         return
 
     if n.callee == "mpi_abort":
@@ -867,7 +872,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
             ew = acc(builder, state, ename)
             state.add_edge(seed, "_c", ew, None, Memlet(f"{ename}[0]"))
             state.add_edge(ew, None, node, "_errorcode", Memlet(f"{ename}[0]"))
-        _wire_user_comm(node, n.call_args[1] if len(n.call_args) > 1 else None)
+        _wire_user_comm(node, _trailing_comm(operands=1))
         return
 
     if n.callee == "mpi_gatherv":
@@ -893,7 +898,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         )
         state.add_edge(state.add_read(root), None, node, "_root", _buf_memlet(root, 4))
         state.add_edge(node, "_outbuffer", state.add_write(recvbuf), None, _buf_memlet(recvbuf, 1))
-        _wire_user_comm(node, n.call_args[5] if len(n.call_args) > 5 else None)
+        _wire_user_comm(node, _trailing_comm(operands=5))
         return
 
     if n.callee == "mpi_gather":
@@ -908,7 +913,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_edge(state.add_read(sendbuf), None, node, "_inbuffer", _buf_memlet(sendbuf, 0))
         state.add_edge(state.add_read(root), None, node, "_root", _buf_memlet(root, 2))
         state.add_edge(node, "_outbuffer", state.add_write(recvbuf), None, _buf_memlet(recvbuf, 1))
-        _wire_user_comm(node, n.call_args[3] if len(n.call_args) > 3 else None)
+        _wire_user_comm(node, _trailing_comm(operands=3))
         return
 
     if n.callee == "mpi_reduce":
@@ -924,7 +929,7 @@ def emit_mpi(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowReg
         state.add_edge(state.add_read(sendbuf), None, node, "_inbuffer", _buf_memlet(sendbuf, 0))
         state.add_edge(state.add_read(root), None, node, "_root", _buf_memlet(root, 3))
         state.add_edge(node, "_outbuffer", state.add_write(recvbuf), None, _buf_memlet(recvbuf, 1))
-        _wire_user_comm(node, n.call_args[4] if len(n.call_args) > 4 else None)
+        _wire_user_comm(node, _trailing_comm(operands=4))
         return
 
     buffer, partner, tag = n.call_args[0], n.call_args[1], n.call_args[2]
@@ -1639,7 +1644,7 @@ def emit_call(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlowRe
         # ``_QM<mod>P<name>`` -- the bare proc name is everything after
         # the *last* ``P`` (handles module names that contain a ``P``).
         p_idx = callee.rfind("P")
-        if p_idx > 2:
+        if p_idx >= len("_QM"):
             callee = callee[p_idx + 1 :]
     sig = lookup_external(callee)
     if sig is None and callee != callee_raw:

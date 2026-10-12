@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 
@@ -21,10 +22,7 @@ def _f2py_ref(src: str, out_dir: Path, name: str):
         [sys.executable, "-m", "numpy.f2py", "-c", f"{name}.f90", "-m", name, "--quiet"],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(name)
-    return sys.modules[name]
+    return import_extension(out_dir, name)
 
 
 def test_literal_integer_subscript(tmp_path: Path):

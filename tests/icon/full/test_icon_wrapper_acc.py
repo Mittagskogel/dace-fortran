@@ -7,7 +7,6 @@ for every undefined one, and a compile proof of the rendered wrapper
 under gfortran with OpenACC OFF and gfortran with ``-fopenacc`` ON.
 """
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -23,17 +22,12 @@ from dace_fortran.bindings.acc_transfers import (
     validate_acc_mappability,
 )
 from dace_fortran.bindings.frozen_signature import FrozenArgKind
+from scripts import build_icon_dace_libs as _bil
 from tests._util import build_sdfg
 
 _HERE = Path(__file__).resolve().parent
-_REPO = _HERE.parents[2]
 _VELOCITY_SRC = _HERE / "velocity_full.f90"
 
-_bil_spec = importlib.util.spec_from_file_location(
-    "_icon_wrapper_acc_bil", _REPO / "scripts" / "build_icon_dace_libs.py"
-)
-_bil = importlib.util.module_from_spec(_bil_spec)
-_bil_spec.loader.exec_module(_bil)
 
 _ARGS = _bil._VELOCITY_WRAPPER_ARGS
 _ARRAY_ARGS = ("p_prog", "p_patch", "p_int", "p_metrics", "p_diag", "z_w_concorr_me", "z_kin_hor_e", "z_vt_ie")

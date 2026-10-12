@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 
@@ -34,10 +35,7 @@ def _f2py(src_text: str, out_dir: Path, mod_name: str):
         ],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__(mod_name)
-    return sys.modules[mod_name]
+    return import_extension(out_dir, mod_name)
 
 
 def _sdfg_args(sdfg, int_vals):

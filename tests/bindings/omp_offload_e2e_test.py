@@ -61,7 +61,9 @@ end subroutine run_axpy_c
 
 def _offload_arch() -> str:
     """The first GPU's ``gfx`` target, as ROCm's ``amdgpu-arch`` reports it."""
-    tool = shutil.which("amdgpu-arch") or "/opt/rocm/llvm/bin/amdgpu-arch"
+    tool = shutil.which("amdgpu-arch")
+    if tool is None:
+        pytest.skip("ROCm's amdgpu-arch is not on PATH")
     archs = subprocess.run([tool], capture_output=True, text=True, check=True).stdout.split()
     assert archs, "amdgpu-arch reports no AMD GPU"
     return archs[0]

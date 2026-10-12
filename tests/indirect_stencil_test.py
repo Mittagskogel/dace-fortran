@@ -4,33 +4,15 @@ gfortran/f2py on random input, plus structural checks that each distinct
 interstate-edge assignment forcing a new state before the compute tasklet.
 """
 
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 
+from tests._helpers import f2py_build_and_import
 from tests._util import build_sdfg
 
 _HERE = Path(__file__).resolve().parent
 _SRC_PATH = _HERE / "indirect_stencil.f90"
-
-
-def _f2py_compile(src: Path, out_dir: Path, mod_name: str) -> Path:
-    """Compile `src` via f2py into `out_dir`; returns that dir for sys.path. Requires gfortran."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.check_call([sys.executable, "-m", "numpy.f2py", "-c", str(src), "-m", mod_name, "--quiet"], cwd=out_dir)
-    # meson backend usually drops the .so in cwd; if it landed in a sibling build-dir, locate + symlink.
-    if not list(out_dir.glob(f"{mod_name}*.so")):
-        matches = list(out_dir.rglob(f"{mod_name}*.so"))
-        if not matches:
-            # Last resort: search /tmp tree.
-            matches = list(Path("/tmp").rglob(f"{mod_name}*.so"))
-            matches = [m for m in matches if m.stat().st_mtime > src.stat().st_mtime]
-        if matches:
-            link = out_dir / matches[0].name
-            link.symlink_to(matches[0].resolve())
-    return out_dir
 
 
 def test_indirect_access_symbol_and_state(tmp_path):
@@ -55,12 +37,7 @@ def test_indirect_access_symbol_and_state(tmp_path):
 
 def test_indirect_access_numerical(tmp_path):
     """SDFG matches gfortran/f2py-compiled Fortran; flang is used only to emit HLFIR for the frontend."""
-    f2py_dir = _f2py_compile(_SRC_PATH, tmp_path / "f2py", "ind_fort")
-    sys.path.insert(0, str(f2py_dir))
-    try:
-        import ind_fort
-    finally:
-        sys.path.remove(str(f2py_dir))
+    ind_fort = f2py_build_and_import(_SRC_PATH, out_dir=tmp_path / "f2py", mod_name="ind_fort")
 
     sdfg_dir = tmp_path / "sdfg"
     sdfg_dir.mkdir(parents=True, exist_ok=True)

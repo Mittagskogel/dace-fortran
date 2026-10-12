@@ -434,28 +434,32 @@ def _find_type_decl_node(node: f03.Entity_Decl) -> Base | None:
 # It handles intrinsic functions, type kinds, and arithmetic/logical operations.
 
 
+_BITS_PER_BYTE = 8
+
+#: ``SELECTED_REAL_KIND(p, r)``: the first kind whose (max decimal precision, max decimal exponent range) holds both;
+#: anything larger is DOUBLE_KIND.
+_REAL_KIND_LIMITS = ((2, 2, 14), (4, 8, 126))
+
+
 def _eval_selected_int_kind(p: Union[int, np.integer]) -> int:
     """Calculates the integer kind value from a given precision."""
     # Copied logic from `replace_int_kind()` elsewhere in the project.
     # avoid int overflow in numpy 2.0
     precision = int(p)
-    kind = math.ceil((math.log2(10**precision) + 1) / 8)
-    assert kind <= 8
-    if kind <= 2:
-        return kind
-    if kind <= 4:
-        return 4
-    return 8
+    # magnitude bits plus the sign bit, rounded up to whole bytes, then to the next kind that exists
+    min_bytes = math.ceil((math.log2(10**precision) + 1) / _BITS_PER_BYTE)
+    fitting = [k for k in types.INT_KIND_TYPES if k >= min_bytes]
+    assert fitting, f"no INTEGER kind holds {precision} decimal digits"
+    return fitting[0]
 
 
 def _eval_selected_real_kind(p: int, r: int) -> int:
     """Calculates the real kind value from a given precision and range."""
     # Copied logic from `replace_real_kind()` elsewhere in the project.
-    if p >= 9 or r > 126:
-        return 8
-    if p >= 3 or r > 14:
-        return 4
-    return 2
+    for kind, max_precision, max_range in _REAL_KIND_LIMITS:
+        if p <= max_precision and r <= max_range:
+            return kind
+    return types.DOUBLE_KIND
 
 
 def _cdiv(x: types.NUMPY_TYPES, y: types.NUMPY_TYPES) -> types.NUMPY_TYPES:
@@ -543,14 +547,10 @@ def _eval_int_literal(
     if isinstance(kind, f03.Name):
         kind = kind.string
     if kind is None:
-        kind = 4
-    if str(kind) == "c_int":
-        kind = 4
-    elif str(kind) == "c_double":
-        kind = 8
-    elif str(kind) == "c_float":
-        kind = 4
-    elif kind in {"1", "2", "4", "8"}:
+        kind = types.DEFAULT_KIND
+    if str(kind) in types.ISO_C_KINDS:
+        kind = types.ISO_C_KINDS[str(kind)]
+    elif kind in {str(k) for k in types.INT_KIND_TYPES}:
         kind = np.int32(kind)
     else:
         kind_spec = search_real_local_alias_spec_from_spec((*find_scope_spec(x), str(kind)), alias_map)
@@ -559,14 +559,8 @@ def _eval_int_literal(
             kind_node, _, _, _ = kind_decl.children
             kind = const_eval_basic_type(kind_node, alias_map)
             assert type(kind) is np.int32
-    assert kind in {1, 2, 4, 8}
-    if kind == 1:
-        return np.int8(num)
-    if kind == 2:
-        return np.int16(num)
-    if kind == 4:
-        return np.int32(num)
-    return np.int64(num)  # kind == 8, by the assertion above
+    assert kind in types.INT_KIND_TYPES
+    return types.INT_KIND_TYPES[int(kind)](num)
 
 
 def _eval_real_literal(
@@ -605,11 +599,9 @@ def _eval_real_literal(
         if kind_val is None or type(kind_val) not in (np.int32, np.int64):
             return None
         kind = int(kind_val)
-    if kind not in {4, 8}:
+    if kind not in types.REAL_KIND_TYPES:
         return None
-    if kind == 4:
-        return np.float32(num)
-    return np.float64(num)  # kind == 8, by the check above
+    return types.REAL_KIND_TYPES[int(kind)](num)
 
 
 def const_eval_basic_type(expr: Base, alias_map: types.SPEC_TABLE) -> types.NUMPY_TYPES | None:
@@ -676,7 +668,7 @@ def const_eval_basic_type(expr: Base, alias_map: types.SPEC_TABLE) -> types.NUMP
                 return None
             return np.int32(_eval_selected_int_kind(int(p)))
         elif intr.string == "INT":
-            kind: Union[int, types.NUMPY_TYPES] | None = 4
+            kind: Union[int, types.NUMPY_TYPES] | None = types.DEFAULT_KIND
             if len(args) == 2:
                 kind = const_eval_basic_type(args[-1], alias_map)
             num = const_eval_basic_type(args[0], alias_map)
@@ -684,14 +676,14 @@ def const_eval_basic_type(expr: Base, alias_map: types.SPEC_TABLE) -> types.NUMP
                 return None
             return _eval_int_literal(f03.Int_Literal_Constant(f"{int(num)}_{int(kind)}"), alias_map)
         elif intr.string == "REAL":
-            kind = 4
+            kind = types.DEFAULT_KIND
             if len(args) == 2:
                 kind = const_eval_basic_type(args[-1], alias_map)
             num = const_eval_basic_type(args[0], alias_map)
             if num is None or kind is None:
                 return None
             valstr = str(num)
-            if kind == 8:
+            if kind == types.DOUBLE_KIND:
                 valstr = valstr.replace("e", "D") if "e" in valstr else f"{valstr}D0"
             return _eval_real_literal(f03.Real_Literal_Constant(valstr), alias_map)
     elif isinstance(expr, (f03.Int_Literal_Constant, f03.Signed_Int_Literal_Constant)):

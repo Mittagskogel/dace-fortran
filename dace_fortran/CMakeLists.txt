@@ -130,8 +130,8 @@ if(NOT LLVM_DIR)
     if(_LLVM_PREFIX AND EXISTS "${_LLVM_PREFIX}/lib/cmake/llvm/LLVMConfig.cmake")
         set(LLVM_DIR "${_LLVM_PREFIX}/lib/cmake/llvm" CACHE PATH "")
     else()
-        set(LLVM_DIR "/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm"
-            CACHE PATH "Path to LLVMConfig.cmake")
+        message(FATAL_ERROR "No LLVMConfig.cmake next to flang ${_FLANG_BIN} (prefix '${_LLVM_PREFIX}'); "
+                            "put an LLVM ${LLVM_VERSION} flang on PATH or pass -DLLVM_DIR.")
     endif()
 endif()
 

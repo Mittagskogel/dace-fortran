@@ -528,6 +528,11 @@ _CPP_KEYWORDS = frozenset(
         "xor_eq",
     }
 )
+#: How many offending sites, use sites per symbol, and characters of each a post-build check error lists.
+_MAX_REPORTED_SITES = 5
+_MAX_REPORTED_USE_SITES = 3
+_MAX_REPORTED_TEXT = 160
+
 SYMPY_RESERVED_NAMES = frozenset({"test", "doctest", "im", "re", "ln", "limit"})
 RESERVED_DACE_NAMES = SYMPY_RESERVED_NAMES | _CPP_KEYWORDS
 
@@ -1978,9 +1983,9 @@ class SDFGBuilder:
             for n in state.nodes():
                 if isinstance(n, AccessNode) and n.data not in sdfg.arrays:
                     bad.append((state.label, n.data))
-                    if len(bad) >= 5:
+                    if len(bad) >= _MAX_REPORTED_SITES:
                         break
-            if len(bad) >= 5:
+            if len(bad) >= _MAX_REPORTED_SITES:
                 break
         if not bad:
             return
@@ -2123,23 +2128,23 @@ class SDFGBuilder:
                     continue
                 subset_str = f"{m.subset}"
                 if pat.search(subset_str):
-                    examples.append(f"memlet[{state.label}] data={m.data} subset={subset_str[:160]}")
-                    if len(examples) >= 3:
+                    examples.append(f"memlet[{state.label}] data={m.data} subset={subset_str[:_MAX_REPORTED_TEXT]}")
+                    if len(examples) >= _MAX_REPORTED_USE_SITES:
                         break
-            if len(examples) >= 3:
+            if len(examples) >= _MAX_REPORTED_USE_SITES:
                 break
             for n in state.nodes():
                 if isinstance(n, Tasklet) and pat.search(n.code.as_string):
-                    examples.append(f"tasklet[{state.label}::{n.label}] code={n.code.as_string[:160]}")
-                    if len(examples) >= 3:
+                    examples.append(f"tasklet[{state.label}::{n.label}] code={n.code.as_string[:_MAX_REPORTED_TEXT]}")
+                    if len(examples) >= _MAX_REPORTED_USE_SITES:
                         break
                 if isinstance(n, NestedSDFG):
                     for k, v in n.symbol_mapping.items():
                         if pat.search(str(v)):
                             examples.append(f"nsdfg[{state.label}::{n.label}] symbol_mapping[{k}]={v}")
-                            if len(examples) >= 3:
+                            if len(examples) >= _MAX_REPORTED_USE_SITES:
                                 break
-            if len(examples) >= 3:
+            if len(examples) >= _MAX_REPORTED_USE_SITES:
                 break
         hint = (
             "Most likely cause: the bridge collapsed an unflattened struct-"
@@ -2151,8 +2156,8 @@ class SDFGBuilder:
         )
         bullet = "\n  ".join(examples) if examples else "(no use site found)"
         raise RuntimeError(
-            f"unresolved free symbol(s) in SDFG: {unresolved[:5]}"
-            f"{'' if len(unresolved) <= 5 else f' (+{len(unresolved) - 5} more)'}"
+            f"unresolved free symbol(s) in SDFG: {unresolved[:_MAX_REPORTED_SITES]}"
+            f"{'' if len(unresolved) <= _MAX_REPORTED_SITES else f' (+{len(unresolved) - _MAX_REPORTED_SITES} more)'}"
             f"\nfirst representative use site(s) for {target!r}:\n  {bullet}"
             f"\n\n{hint}"
         )

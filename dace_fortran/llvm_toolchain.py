@@ -50,10 +50,16 @@ def flang_names(version: str | None = None) -> list[str]:
     return names + list(_UNVERSIONED)
 
 
+#: Seconds ``flang --version`` may take before the binary is treated as unusable.
+_VERSION_PROBE_TIMEOUT_S = 60
+
+
 def flang_major(binary: str) -> str:
     """The LLVM major a flang binary reports, or ``''`` if it is not LLVM flang."""
     try:
-        proc = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=60, check=False)
+        proc = subprocess.run(
+            [binary, "--version"], capture_output=True, text=True, timeout=_VERSION_PROBE_TIMEOUT_S, check=False
+        )
     except (OSError, subprocess.SubprocessError):
         return ""
     match = _FLANG_VERSION_RE.search(proc.stdout)

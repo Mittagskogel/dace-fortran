@@ -215,10 +215,11 @@ step "2) Build DaCe velocity lib from ICON's REAL source (vs STOCK config)"
 # --icon-src/--icon-build select the real-source route: the SDFG is lowered from
 # the pristine mo_velocity_advection.f90.bak (STOCK's source is pristine right
 # now) and the bind_c shim resolves its USEs against STOCK_BUILD/mod via -I.
-capped "${PY}" "${DACE_FORTRAN}/scripts/build_icon_dace_libs.py" \
+# As a module from the repo root: the script imports the tests package.
+(cd "${DACE_FORTRAN}" && capped "${PY}" -m scripts.build_icon_dace_libs \
   --icon-src "${ICON_SRC}" \
   --icon-build "${LANE_BUILD}" \
-  --out-dir "${DACE_LIBS}"
+  --out-dir "${DACE_LIBS}")
 
 
 step "3) Patch mo_velocity_advection.f90 + build DACE ICON"

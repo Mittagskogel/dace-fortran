@@ -40,7 +40,6 @@ from pathlib import Path
 
 import dace
 
-_DACE_FORTRAN = Path(__file__).resolve().parent.parent
 import dace_fortran
 from dace_fortran.bindings import FlattenPlan, build_fortran_library
 from dace_fortran.bindings.fortran_interface import build_auto_interface
@@ -52,6 +51,8 @@ from tests.icon.full.test_dycore_from_icon_source import (
     _ICON_DEFINES_FALLBACK,
     _ICON_EXTERNAL_STUBS,
 )
+
+_DACE_FORTRAN = Path(__file__).resolve().parent.parent
 
 _RELEASE_FFLAGS = (
     "-O3",

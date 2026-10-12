@@ -151,4 +151,7 @@ def test_user_comm_split_send_recv(tmp_path: Path):
 
 
 if __name__ == "__main__":
-    test_user_comm_split_send_recv(Path("/tmp/mpi_comm_e2e"))
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        test_user_comm_split_send_recv(Path(tmp) / "mpi_comm_e2e")

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 _SRC = """
@@ -45,10 +46,7 @@ def _f2py_ref(tmp_path: Path):
     subprocess.check_call(
         [sys.executable, "-m", "numpy.f2py", "-c", str(src), "-m", "probe_ddot_ref", "-lblas", "--quiet"], cwd=out_dir
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    __import__("probe_ddot_ref")
-    return sys.modules["probe_ddot_ref"]
+    return import_extension(out_dir, "probe_ddot_ref")
 
 
 def _inputs():

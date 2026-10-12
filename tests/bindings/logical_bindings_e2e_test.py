@@ -15,6 +15,7 @@ from dace_fortran.bindings import (
     OriginalInterface,
     emit_bindings,
 )
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 
@@ -72,9 +73,7 @@ def _build_e2e_module(
     proc = subprocess.run(cmd, check=False, cwd=build_dir, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"f2py compile failed:\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
-    if str(build_dir) not in sys.path:
-        sys.path.insert(0, str(build_dir))
-    return __import__(module_name)
+    return import_extension(build_dir, module_name)
 
 
 def _f2py_ref(tmp_path: Path, src: str, name: str):

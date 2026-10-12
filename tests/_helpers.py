@@ -1,9 +1,12 @@
 """Shared helpers for verbatim ports from ``f2dace/dev:tests/fortran/`` -- reference build, arg routing, strict-xfail marker."""
 
+import importlib.util
 import subprocess
 import sys
+import sysconfig
 import time
 from pathlib import Path
+from types import ModuleType
 
 import numpy as np
 import pytest
@@ -53,25 +56,39 @@ def _f2py_routine_present(mod, name: str) -> bool:
     return False
 
 
-def f2py_build_and_import(src_file, *, out_dir, mod_name, only=None, extra_args=(), env=None):
-    """Build ``src_file`` via ``numpy.f2py -c`` and import it.  Hardened against two
-    heavy-parallel-load failure modes: fork/exec ENOMEM (retried by
-    :func:`f2py_build_with_retry`) and an rc=0 but incomplete module missing an
-    ``only``-named routine (rebuilt under a fresh extension name).  Raises
+def import_extension(out_dir: Path, name: str) -> ModuleType:
+    """Load the extension module ``name`` built into ``out_dir`` from its file, leaving ``sys.path`` alone: a
+    search-path entry would let every later import of a same-named module in this process resolve to this test's
+    build."""
+    filename = f"{name}{sysconfig.get_config_var('EXT_SUFFIX')}"
+    # meson usually drops the extension in its cwd, occasionally only in its build directory.
+    built = [out_dir / filename] if (out_dir / filename).is_file() else sorted(out_dir.rglob(filename))
+    if not built:
+        raise RuntimeError(f"f2py reported success but no {filename} exists under {out_dir}")
+    spec = importlib.util.spec_from_file_location(name, built[0])
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def f2py_build_and_import(src_files, *, out_dir, mod_name, only=None, extra_args=(), env=None):
+    """Build ``src_files`` (one path or several) via ``numpy.f2py -c`` and import the module.  Hardened against two
+    heavy-parallel-load failure modes: fork/exec ENOMEM (retried by :func:`f2py_build_with_retry`) and an rc=0 but
+    incomplete module missing an ``only``-named routine (rebuilt under a fresh extension name).  Raises
     ``RuntimeError`` naming the missing routine rather than leaking ``AttributeError``."""
     out_dir = Path(out_dir)
-    base = [sys.executable, "-m", "numpy.f2py", "-c", str(src_file)]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sources = [src_files] if isinstance(src_files, (str, Path)) else list(src_files)
+    base = [sys.executable, "-m", "numpy.f2py", "-c", *map(str, sources)]
     only_args = ["only:", *only, ":"] if only else []
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
     expected = tuple(only) if only else ()
     incomplete = None
     for attempt in range(1, _F2PY_IMPORT_ATTEMPTS + 1):
         ext_name = mod_name if attempt == 1 else f"{mod_name}_r{attempt}"
         cmd = [*base, "-m", ext_name, "--quiet", *extra_args, *only_args]
         f2py_build_with_retry(cmd, cwd=out_dir, mod_name=ext_name, env=env)
-        __import__(ext_name)
-        mod = sys.modules[ext_name]
+        mod = import_extension(out_dir, ext_name)
         missing = [s for s in expected if not _f2py_routine_present(mod, s)]
         if not missing:
             return mod

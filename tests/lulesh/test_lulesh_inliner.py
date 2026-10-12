@@ -18,6 +18,7 @@ import pytest
 
 from dace_fortran.fparser_inliner import inline_to_ast
 from dace_fortran.preprocess import MergeEngine, merge_used_modules
+from tests._helpers import import_extension
 from tests._util import build_sdfg
 
 _HERE = Path(__file__).parent
@@ -110,9 +111,7 @@ def _f2py_reference(tu_text: str, out_dir: Path, mod: str):
         ],
         cwd=out_dir,
     )
-    if str(out_dir) not in sys.path:
-        sys.path.insert(0, str(out_dir))
-    return __import__(mod)
+    return import_extension(out_dir, mod)
 
 
 @pytest.mark.parametrize("engine", list(MergeEngine), ids=lambda e: e.value)

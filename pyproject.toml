@@ -113,8 +113,6 @@ ignore = [
 "spack/**/package.py" = ["F403", "F405"]
 # The MPI / stack environment has to be in place before mpi4py and dace are imported.
 "tests/conftest.py" = ["E402"]
-# Imports the ICON test helpers, which expect tests/ on sys.path.
-"scripts/build_icon_solve_nh_libs.py" = ["E402"]
 
 [tool.mypy]
 files = ["dace_fortran"]
