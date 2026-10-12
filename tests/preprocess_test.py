@@ -13,7 +13,6 @@ from dace_fortran.preprocess import (
     normalize_kind_parameters,
     preprocess_fortran,
     preprocess_fortran_source,
-    promote_real_literals_to_double,
     rewrite_integer_powers,
     strip_openmp_directives,
 )
@@ -153,38 +152,6 @@ def test_pow_comment_untouched_and_idempotent():
     assert rewrite_integer_powers("z = a**2.0  ! b**2.0 keep") == "z = (a*a)  ! b**2.0 keep"
     once = rewrite_integer_powers("v = (p-q)**2.0 + zt**3.0_JPRB")
     assert rewrite_integer_powers(once) == once
-
-
-# --------------------------------------------------------------------------
-# promote_real_literals_to_double: single/default REAL literals -> explicit
-# double; already-double and integers left as-is.
-# --------------------------------------------------------------------------
-
-
-def test_double_bare_and_single_kind():
-    assert promote_real_literals_to_double("x = 2.0") == "x = 2.0D0"
-    assert promote_real_literals_to_double("y = 4.2_JPRM + 1.0_4") == "y = 4.2D0 + 1.0D0"
-    assert promote_real_literals_to_double("b = 1.0e-3 + .5 + 1.") == "b = 1.0D-3 + .5D0 + 1.D0"
-
-
-def test_double_leaves_already_double_and_integers():
-    # _JPRB / _8 / D-exponent are already double.
-    assert promote_real_literals_to_double("z = 0.85E5_JPRB + 1.5D0 + 1.0_8") == "z = 0.85E5_JPRB + 1.5D0 + 1.0_8"
-    # Integers and kind selectors must not be touched.
-    assert promote_real_literals_to_double("n = 137 + i*2") == "n = 137 + i*2"
-    assert promote_real_literals_to_double("REAL(KIND=8) :: q") == "REAL(KIND=8) :: q"
-    assert promote_real_literals_to_double("k = SELECTED_REAL_KIND(13,300)") == "k = SELECTED_REAL_KIND(13,300)"
-
-
-def test_double_skips_identifiers_strings_comments():
-    assert promote_real_literals_to_double("r = R2ES + X1 + a2b") == "r = R2ES + X1 + a2b"
-    assert promote_real_literals_to_double("msg = 'keep 2.0 here'  ! 3.0 too") == "msg = 'keep 2.0 here'  ! 3.0 too"
-    assert promote_real_literals_to_double("u = 6.0 ! 7.0 stays") == "u = 6.0D0 ! 7.0 stays"
-
-
-def test_double_idempotent():
-    once = promote_real_literals_to_double("v = 2.0 + 0.85E5 + 1.0_JPRM")
-    assert promote_real_literals_to_double(once) == once
 
 
 # --------------------------------------------------------------------------

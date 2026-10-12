@@ -188,8 +188,3 @@ def analyze(ast: f03.Program, only_bases: Iterable[str] | None = None) -> list[M
         plans.append(MonomorphizationPlan(name, sorted(base.deferred), arms))
 
     return plans
-
-
-def analyze_source(source: str) -> list[MonomorphizationPlan]:
-    """Parse + analyse one Fortran source string (convenience for tests/specs)."""
-    return analyze(parse_program(source))

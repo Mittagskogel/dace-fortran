@@ -217,7 +217,7 @@ struct FoldAssumedRankQueriesPass
         if (auto seq = mlir::dyn_cast<fir::SequenceType>(t)) {
           if (!seq.hasUnknownShape()) {
             auto shape = seq.getShape();
-            if (dim >= 0 && dim < (int64_t)shape.size()) {
+            if (dim >= 0 && dim < static_cast<int64_t>(shape.size())) {
               int64_t e = shape[dim];
               if (e != fir::SequenceType::getUnknownExtent()) return e;
             }

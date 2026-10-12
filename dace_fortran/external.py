@@ -312,11 +312,6 @@ class ExternalSignature:
     # hand-authored C externals.
     callee_ptr_scalar_members: frozenset = field(default_factory=frozenset)
 
-    def c_declaration(self) -> str:
-        """The ``extern "C" void <c_name>(<types>);`` declaration."""
-        params = ", ".join(a.c_decl_type() for a in self.args) or "void"
-        return f'extern "C" void {self.c_name}({params});'
-
 
 class _RegistryState:
     """Process-wide external registry: the signatures plus the linker config they mutated."""

@@ -155,7 +155,7 @@ struct FlattenGlobalScalarReadsPass
       std::string const dtype = dtypeName(refTy.getEleTy());
 
       bool ok = !dtype.empty() && !writtenGlobals.contains(sym) && !takenNames.contains(newSym);
-      for (mlir::Operation* user : d.getResult().getUsers())
+      for (mlir::Operation const* user : d.getResult().getUsers())
         if (!mlir::isa<fir::LoadOp>(user)) ok = false;
       if (!ok) {
         rejected.insert(newSym);
@@ -198,7 +198,7 @@ struct FlattenGlobalScalarReadsPass
 
     llvm::SmallVector<mlir::NamedAttribute, 2> planAttrs;
     if (auto existing = module->getAttrOfType<mlir::DictionaryAttr>("hlfir.flatten_plan"))
-      for (mlir::NamedAttribute na : existing)
+      for (mlir::NamedAttribute const na : existing)
         if (na.getName() != "synthetic_globals") planAttrs.push_back(na);
     planAttrs.push_back(b.getNamedAttr("synthetic_globals", b.getArrayAttr(table)));
     module->setAttr("hlfir.flatten_plan", b.getDictionaryAttr(planAttrs));

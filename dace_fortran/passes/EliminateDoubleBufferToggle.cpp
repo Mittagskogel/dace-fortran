@@ -120,13 +120,13 @@ std::optional<bool> evalCmpi(mlir::Value cond) {
     case P::sge:
       return *l >= *r;
     case P::ult:
-      return (uint64_t)*l < (uint64_t)*r;
+      return static_cast<uint64_t>(*l) < static_cast<uint64_t>(*r);
     case P::ule:
-      return (uint64_t)*l <= (uint64_t)*r;
+      return static_cast<uint64_t>(*l) <= static_cast<uint64_t>(*r);
     case P::ugt:
-      return (uint64_t)*l > (uint64_t)*r;
+      return static_cast<uint64_t>(*l) > static_cast<uint64_t>(*r);
     case P::uge:
-      return (uint64_t)*l >= (uint64_t)*r;
+      return static_cast<uint64_t>(*l) >= static_cast<uint64_t>(*r);
   }
   return std::nullopt;
 }

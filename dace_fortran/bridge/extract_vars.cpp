@@ -70,7 +70,7 @@ static mlir::Type peelTypeLayers(mlir::Type t, int maxDepth = limits::kTypeWrapp
 /// kinds of array-value symbol read consistently.
 static std::string valueSymbolName(const std::string& array, const std::string& index) {
   std::string s = "__sym_" + array + "_";
-  for (char const c : index) s += (std::isalnum((unsigned char)c) || c == '_') ? c : '_';
+  for (char const c : index) s += (std::isalnum(static_cast<unsigned char>(c)) || c == '_') ? c : '_';
   return s;
 }
 
@@ -407,7 +407,7 @@ static std::vector<hlfir::DeclareOp> aliasDeclaresOf(mlir::Value v) {
   std::vector<mlir::Value> frontier{v};
   for (int depth = 0; depth < limits::kSsaBackWalkDepth && !frontier.empty(); ++depth) {
     std::vector<mlir::Value> next;
-    for (mlir::Value f : frontier)
+    for (mlir::Value const f : frontier)
       for (auto* u : f.getUsers())
         if (auto ad = mlir::dyn_cast<hlfir::DeclareOp>(u); ad && ad.getMemref() == f) {
           out.push_back(ad);
@@ -506,9 +506,9 @@ static std::vector<std::string> lowerBoundsFromAllocSite(fir::AllocMemOp alloc) 
   // ShapeShift operand layout: (lb_d0, ext_d0, lb_d1, ext_d1, ...).
   auto ops = ss->getOperands();
   for (unsigned i = 0; i < ops.size(); i += 2) {
-    if (auto c = traceConstInt(ops[i]))
+    if (auto c = traceConstInt(ops[i])) {
       lbs.push_back(std::to_string(*c));
-    else {
+    } else {
       auto n = traceToDecl(ops[i]);
       lbs.push_back(n.empty() ? "?" : n);
     }
@@ -610,9 +610,9 @@ static std::vector<std::string> resolveLowerBounds(hlfir::DeclareOp decl) {
   // an assumed-shape / pointer dummy declared with explicit local
   // bounds (``a(10:,20:)``) -- ``si.lbs`` holds them for both forms.
   for (auto lb : si.lbs) {
-    if (auto c = traceConstInt(lb))
+    if (auto c = traceConstInt(lb)) {
       lbs.push_back(std::to_string(*c));
-    else {
+    } else {
       auto n = traceToDecl(lb);
       lbs.push_back(n.empty() ? "?" : n);
     }
@@ -868,7 +868,7 @@ static void inferLowerBoundsFromLiteralAccesses(
   if (dit != designatesByDecl.end())
     for (auto dg : dit->second) {
       const DesignateLiterals& lits = designateIndexLiterals(dg, func, writeCache, dgLitCache);
-      unsigned const nIdx = std::min<unsigned>(lits.size(), (unsigned)rank);
+      unsigned const nIdx = std::min<unsigned>(lits.size(), static_cast<unsigned>(rank));
       for (unsigned d = 0; d < nIdx; ++d)
         if (lits[d]) {
           minLit[d] = std::min(*lits[d], minLit[d]);
@@ -876,7 +876,7 @@ static void inferLowerBoundsFromLiteralAccesses(
         }
     }
 
-  if ((int)lbs.size() < rank) lbs.resize(rank, "1");
+  if (static_cast<int>(lbs.size()) < rank) lbs.resize(rank, "1");
   for (int d = 0; d < rank; ++d) {
     if (!seenLit[d]) continue;
     // Only adjust the current default ``"1"`` (the bridge's
@@ -980,7 +980,7 @@ static bool integerScalarIsSelectDefined(mlir::Value memref) {
     // Only the data-scalar-condition shape is unsafe: the select's condition must peel to a
     // ``fir.load`` (a stored logical read back as a bare symbol).  An inline ``arith.cmp*`` condition
     // is safe and must remain promotable.
-    mlir::Value cond = peelIndexCoercions(sel.getCondition());
+    mlir::Value const cond = peelIndexCoercions(sel.getCondition());
     if (cond && mlir::isa_and_nonnull<fir::LoadOp>(cond.getDefiningOp())) return true;
   }
   return false;
@@ -1103,15 +1103,15 @@ static std::vector<double> extractGlobalInitData(fir::GlobalOp gop) {
       if (eleTy.isF64()) {
         for (auto v : dense.getValues<double>()) out.push_back(v);
       } else if (eleTy.isF32()) {
-        for (auto v : dense.getValues<float>()) out.push_back((double)v);
+        for (auto v : dense.getValues<float>()) out.push_back(static_cast<double>(v));
       } else if (eleTy.isInteger(8)) {
-        for (auto v : dense.getValues<int8_t>()) out.push_back((double)v);
+        for (auto v : dense.getValues<int8_t>()) out.push_back(static_cast<double>(v));
       } else if (eleTy.isInteger(16)) {
-        for (auto v : dense.getValues<int16_t>()) out.push_back((double)v);
+        for (auto v : dense.getValues<int16_t>()) out.push_back(static_cast<double>(v));
       } else if (eleTy.isInteger(32)) {
-        for (auto v : dense.getValues<int32_t>()) out.push_back((double)v);
+        for (auto v : dense.getValues<int32_t>()) out.push_back(static_cast<double>(v));
       } else if (eleTy.isInteger(64)) {
-        for (auto v : dense.getValues<int64_t>()) out.push_back((double)v);
+        for (auto v : dense.getValues<int64_t>()) out.push_back(static_cast<double>(v));
       } else if (eleTy.isInteger(1)) {
         for (auto v : dense.getValues<bool>()) out.push_back(v ? 1.0 : 0.0);
       }
@@ -1144,7 +1144,7 @@ static std::vector<double> extractGlobalInitData(fir::GlobalOp gop) {
     } else if (auto ba = mlir::dyn_cast<mlir::BoolAttr>(attr)) {
       out.push_back(ba.getValue() ? 1.0 : 0.0);
     } else if (auto ia = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      out.push_back((double)ia.getInt());
+      out.push_back(static_cast<double>(ia.getInt()));
     }
     return out;
   }
@@ -1902,9 +1902,9 @@ std::vector<std::string> renderDesignateSubsetStrings(hlfir::DesignateOp sec) {
   llvm::SmallVector<mlir::Value, 4> shapeExtents;
   if (mlir::Value const shp = sec.getShape()) {
     auto* sd = shp.getDefiningOp();
-    if (auto so = mlir::dyn_cast_or_null<fir::ShapeOp>(sd))
+    if (auto so = mlir::dyn_cast_or_null<fir::ShapeOp>(sd)) {
       shapeExtents.assign(so.getExtents().begin(), so.getExtents().end());
-    else if (auto sso = mlir::dyn_cast_or_null<fir::ShapeShiftOp>(sd)) {
+    } else if (auto sso = mlir::dyn_cast_or_null<fir::ShapeShiftOp>(sd)) {
       auto pr = sso.getPairs();
       for (size_t i = 1; i < pr.size(); i += 2) shapeExtents.push_back(pr[i]);
     }
@@ -2323,9 +2323,9 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
     }
 
     // Element type string.
-    if (std::string dt = dtypeName(ty); !dt.empty())
+    if (std::string const dt = dtypeName(ty); !dt.empty()) {
       v.dtype = dt;
-    else if (mlir::isa<mlir::ComplexType>(ty)) {
+    } else if (mlir::isa<mlir::ComplexType>(ty)) {
       std::string s;
       llvm::raw_string_ostream os(s);
       ty.print(os);
@@ -2608,7 +2608,7 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
                     bool const staticExtent = !ext.empty() && ext.find_first_not_of("0123456789") == std::string::npos;
                     mv.lower_bounds.emplace_back(staticExtent ? "1" : "?");
                   }
-                  std::string dtype = dtypeName(elemTy);
+                  std::string const dtype = dtypeName(elemTy);
                   if (dtype.empty()) continue;
                   mv.dtype = dtype;
                   // Marshalling provenance: this flat array is the SoA image of
@@ -2879,9 +2879,9 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
           return true;
         };
         for (int d = 0; d < v.rank; ++d) {
-          bool const keepSubOneFold = d < (int)v.lower_bounds.size() && isSubOneLiteral(v.lower_bounds[d]);
+          bool const keepSubOneFold = d < static_cast<int>(v.lower_bounds.size()) && isSubOneLiteral(v.lower_bounds[d]);
           if (keepSubOneFold) continue;
-          if (d < (int)v.lower_bounds.size())
+          if (d < static_cast<int>(v.lower_bounds.size()))
             v.lower_bounds[d] = "?";
           else
             v.lower_bounds.emplace_back("?");
@@ -2972,7 +2972,7 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
         // walk reaches the source declare; else the dummy leaks as a degenerate 0-extent program arg
         // whose box_dims read the absent seed -- a read past it SIGABRTs (k_h in solve_free_sfc).
         if (auto ifOp = mlir::dyn_cast<fir::IfOp>(def)) {
-          if (mlir::Value pres = presentBranchOfRuntimeOptional(ifOp, m)) {
+          if (mlir::Value const pres = presentBranchOfRuntimeOptional(ifOp, m)) {
             m = pres;
             viaOptionalSelect = true;
             continue;
@@ -3301,12 +3301,12 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
               // shape change Flang inserts a
               // ``fir.convert`` to re-shape, and needs
               // the view_alias path's stride remapping.
-              bool const rank_matches = ((int)surviving == v.rank);
+              bool const rank_matches = (static_cast<int>(surviving) == v.rank);
               // An assumed-shape dummy's extents are the section's: SIZE(f_in, 1) renders f_in_d0, which nothing
               // binds otherwise (it leaks as a program argument, or a view is sized by a free symbol).
-              if (rank_matches && (int)v.shape_symbols.size() == v.rank && sec.getShape())
+              if (rank_matches && static_cast<int>(v.shape_symbols.size()) == v.rank && sec.getShape())
                 if (auto shp = mlir::dyn_cast_or_null<fir::ShapeOp>(sec.getShape().getDefiningOp()))
-                  if ((int)shp.getExtents().size() == v.rank)
+                  if (static_cast<int>(shp.getExtents().size()) == v.rank)
                     for (int d = 0; d < v.rank; ++d) {
                       auto& sym = v.shape_symbols[d];
                       if (sym != "?" && sym != v.fortran_name + "_d" + std::to_string(d)) continue;
@@ -3752,7 +3752,7 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
               }
             }
             v.bounds_remap_total_extent = total;
-            if (!perDim.empty() && (int)perDim.size() == v.rank) v.shape_symbols = std::move(perDim);
+            if (!perDim.empty() && static_cast<int>(perDim.size()) == v.rank) v.shape_symbols = std::move(perDim);
           }
           // Walk the embox's memref back to the parent declare.
           mlir::Value parent = topEmbox.getMemref();
@@ -4741,7 +4741,7 @@ FortranInterfaceInfo extractFortranInterface(mlir::ModuleOp module, const std::s
             mt = inner;
           }
           if (auto seq = mlir::dyn_cast<fir::SequenceType>(mt)) {
-            m.rank = (int)seq.getShape().size();
+            m.rank = static_cast<int>(seq.getShape().size());
             for (auto e : seq.getShape()) {
               if (e == fir::SequenceType::getUnknownExtent())
                 m.shape_symbols.emplace_back("?");
@@ -4750,9 +4750,9 @@ FortranInterfaceInfo extractFortranInterface(mlir::ModuleOp module, const std::s
             }
             mt = seq.getEleTy();
           }
-          if (std::string dt = dtypeName(mt); !dt.empty() && !mlir::isa<mlir::ComplexType>(mt))
+          if (std::string const dt = dtypeName(mt); !dt.empty() && !mlir::isa<mlir::ComplexType>(mt)) {
             m.dtype = dt;
-          else if (auto nested_rec = mlir::dyn_cast<fir::RecordType>(mt)) {
+          } else if (auto nested_rec = mlir::dyn_cast<fir::RecordType>(mt)) {
             // Nested derived-type member: register its name + module
             // on this member, queue the type for its own layout entry.
             parseRecordName(nested_rec.getName(), m.struct_module, m.struct_name);
@@ -4807,7 +4807,7 @@ FortranInterfaceInfo extractFortranInterface(mlir::ModuleOp module, const std::s
         changed = false;
     }
     if (auto seq = mlir::dyn_cast<fir::SequenceType>(ty)) {
-      a.rank = (int)seq.getShape().size();
+      a.rank = static_cast<int>(seq.getShape().size());
       ty = seq.getEleTy();
     }
 
@@ -4830,7 +4830,7 @@ FortranInterfaceInfo extractFortranInterface(mlir::ModuleOp module, const std::s
       // pointer) keep empty dtype + empty struct_name so the
       // Python side can flag them clearly.
       if (!a.struct_name.empty()) recordStructLayoutRecursive(rec, a.struct_module, a.struct_name);
-    } else if (std::string dt = dtypeName(ty); !dt.empty()) {
+    } else if (std::string const dt = dtypeName(ty); !dt.empty()) {
       a.dtype = dt;
     } else {
       // Unknown element (e.g. character) -- leave dtype empty so the

@@ -1,6 +1,5 @@
 global-include LICENSE LICENSE.*
 include README.md
-include dace_fortran/README.md
 include dace_fortran/CMakeLists.txt
 include dace_fortran/llvm_compat.h
 include dace_fortran/build_bridge.py

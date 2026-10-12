@@ -212,7 +212,7 @@ struct FoldCopyInOutPass : public mlir::PassWrapper<FoldCopyInOutPass, mlir::Ope
           << sourceName(op) << " [source is "
           << (srcDef ? srcDef->getName().getStringRef() : llvm::StringRef("a block argument"))
           << "; call-argument fold declined: "
-          << (fcaBail.count(op.getOperation()) ? fcaBail[op.getOperation()] : std::string("not attempted")) << "]"
+          << (fcaBail.contains(op.getOperation()) ? fcaBail[op.getOperation()] : std::string("not attempted")) << "]"
           << ".  The bridge cannot model a copy-in/copy-out pair: the temporary "
              "would become an uninitialised SDFG argument, so writes through it "
              "are dropped and reads see zeros.  Pass a contiguous whole array (or "
@@ -252,11 +252,11 @@ struct FoldCopyInOutPass : public mlir::PassWrapper<FoldCopyInOutPass, mlir::Ope
     for (size_t ci = 0; ci < chain.size(); ++ci)
       for (mlir::Value const res : {chain[ci].getResult(0), chain[ci].getResult(1)})
         for (auto* u : res.getUsers()) {
-          if (auto dg = mlir::dyn_cast<hlfir::DesignateOp>(u))
+          if (auto dg = mlir::dyn_cast<hlfir::DesignateOp>(u)) {
             uses.push_back(dg);
-          else if (auto bd = mlir::dyn_cast<fir::BoxDimsOp>(u))
+          } else if (auto bd = mlir::dyn_cast<fir::BoxDimsOp>(u)) {
             dims.push_back(bd);
-          else if (auto rd = mlir::dyn_cast<hlfir::DeclareOp>(u)) {
+          } else if (auto rd = mlir::dyn_cast<hlfir::DeclareOp>(u)) {
             if (rd.getMemref() != res) {
               why = "alias re-declared as a non-memref operand";
               return false;
@@ -410,7 +410,7 @@ struct FoldCopyInOutPass : public mlir::PassWrapper<FoldCopyInOutPass, mlir::Ope
   /// diagnostic: without it the error only says the fold failed, not what shape
   /// it actually saw, which is the one thing needed to extend the fold.
   llvm::DenseMap<mlir::Operation*, std::string> fcaBail;
-  void noteBail(hlfir::CopyInOp cin, std::string why) {
+  void noteBail(hlfir::CopyInOp cin, const std::string& why) {
     auto& slot = fcaBail[cin.getOperation()];
     if (!slot.empty()) slot += "; ";
     slot += why;

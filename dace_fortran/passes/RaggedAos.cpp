@@ -471,11 +471,11 @@ std::optional<Plan> planMember(hlfir::DeclareOp decl, llvm::StringRef memName) {
     while (block && !block->findAncestorOpInBlock(*op))
       block = block->getParentOp() ? block->getParentOp()->getBlock() : nullptr;
   };
-  for (Site s : plan.sites) widen(s.store);
-  for (hlfir::DesignateOp dg : plan.designates) widen(dg);
+  for (Site const s : plan.sites) widen(s.store);
+  for (hlfir::DesignateOp const dg : plan.designates) widen(dg);
   if (!block) return std::nullopt;
   mlir::Operation* last = nullptr;
-  for (Site s : plan.sites) {
+  for (Site const s : plan.sites) {
     mlir::Operation* top = ancestorIn(block, s.store);
     if (!plan.point || top->isBeforeInBlock(plan.point)) plan.point = top;
     if (!last || last->isBeforeInBlock(top)) last = top;
@@ -568,7 +568,7 @@ bool raggedAosMemberFlattenable(hlfir::DeclareOp decl, llvm::StringRef memName) 
 static std::string kernelLocalName(mlir::func::FuncOp func, llvm::StringRef flatName) {
   auto [kind, proc] = fir::NameUniquer::deconstruct(func.getSymName());
   auto [varKind, var] = fir::NameUniquer::deconstruct(flatName);
-  llvm::SmallVector<llvm::StringRef, 4> modules(proc.modules.begin(), proc.modules.end());
+  llvm::SmallVector<llvm::StringRef, 4> const modules(proc.modules.begin(), proc.modules.end());
   llvm::SmallVector<llvm::StringRef, 4> procs(proc.procs.begin(), proc.procs.end());
   procs.push_back(proc.name);
   llvm::StringSet<> taken;
@@ -654,14 +654,14 @@ void flattenRaggedAosMember(hlfir::DeclareOp decl, llvm::StringRef memName, cons
     b.create<hlfir::AssignOp>(loc, b.create<mlir::arith::ConstantIntOp>(loc, i64, 0).getResult(), capDecl.getResult(0));
     capSlots.push_back(capDecl.getResult(0));
   }
-  mlir::func::FuncOp func = decl->getParentOfType<mlir::func::FuncOp>();
+  auto const func = decl->getParentOfType<mlir::func::FuncOp>();
   mlir::DominanceInfo dom(func);
   mlir::Operation* last = plan.point;
-  for (Site s : plan.sites)
+  for (Site const s : plan.sites)
     if (mlir::Operation* top = ancestorIn(plan.point->getBlock(), s.store); last->isBeforeInBlock(top)) last = top;
   Bounder bounder(plan.point, last, dom);
   for (Site s : plan.sites) {
-    mlir::OpBuilder::InsertionGuard guard(b);
+    mlir::OpBuilder::InsertionGuard const guard(b);
     mlir::IRMapping map;
     bounder.openLoops(s.store, &b, map);
     for (unsigned d = 0; d < plan.rank; ++d) {
@@ -708,7 +708,7 @@ void flattenRaggedAosMember(hlfir::DeclareOp decl, llvm::StringRef memName, cons
       live.push_back(liveExtent(parent, d));
       subs.push_back(std::tuple<mlir::Value, mlir::Value, mlir::Value>{cIndex(1), live.back(), cIndex(1)});
     }
-    llvm::SmallVector<int64_t, 4> unknown(plan.rank, fir::SequenceType::getUnknownExtent());
+    llvm::SmallVector<int64_t, 4> const unknown(plan.rank, fir::SequenceType::getUnknownExtent());
     auto sectionTy = fir::BoxType::get(fir::SequenceType::get(unknown, plan.eleTy));
     auto shape = b.create<fir::ShapeOp>(loc, live);
     return b
