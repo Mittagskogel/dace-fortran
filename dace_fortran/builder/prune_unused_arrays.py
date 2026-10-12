@@ -42,7 +42,7 @@ def _collect_live_names(sdfg: SDFG) -> set[str]:
     from dace.sdfg.utils import get_used_data
 
     live: set[str] = set()
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         live |= get_used_data(state)
     array_names = set(sdfg.arrays.keys())
 
@@ -50,7 +50,7 @@ def _collect_live_names(sdfg: SDFG) -> set[str]:
         if text:
             live.update(set(_IDENT_RE.findall(text)) & array_names)
 
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for n in state.nodes():
             if isinstance(n, _nodes.Tasklet):
                 for cb in (n.code, n.code_global, n.code_init, n.code_exit):
@@ -112,7 +112,7 @@ def prune_unused_arrays(sdfg: SDFG, binding_names: AbstractSet[str] = frozenset(
     (FlattenPlan's ``flat_names``, writeback companions); empty set when no
     binding-emission concern (e.g. direct-call SDFGs)."""
     dropped = _prune_one(sdfg, binding_names)
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for n in state.nodes():
             if isinstance(n, _nodes.NestedSDFG):
                 # Nested SDFG descriptors live in their own table; parent's binding-name set doesn't apply.

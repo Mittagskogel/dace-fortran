@@ -129,7 +129,7 @@ def _flag_stores(sdfg) -> dict:
 
     return {
         nd.label[len("set_") :]: nd.code.as_string.strip()
-        for st in sdfg.all_states()
+        for st in sdfg.states()
         for nd in st.nodes()
         if isinstance(nd, dace.nodes.Tasklet) and nd.label.startswith("set_add_")
     }

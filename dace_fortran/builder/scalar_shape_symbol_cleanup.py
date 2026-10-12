@@ -64,7 +64,7 @@ class RemoveScalarFortranShapeSymbols(ppl.Pass):
                     removed.add(sym)
 
         if self.recursive:
-            for state in sdfg.all_states():
+            for state in sdfg.states():
                 for node in state.nodes():
                     if isinstance(node, dace.nodes.NestedSDFG):
                         self._rewrite(node.sdfg)

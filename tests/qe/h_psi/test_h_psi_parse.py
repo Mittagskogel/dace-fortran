@@ -553,7 +553,7 @@ def test_fftx_c2psi_k_tg_indexes_only_by_symbols(tmp_path):
     sdfg = dace_fortran.build_sdfg(
         src, out_dir=str(tmp_path / "sdfg"), entry="fft_helper_subroutines::fftx_c2psi_k_tg", name="c2psi_k_tg"
     )
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         assert isinstance(state, SDFGState)
         for edge in state.edges():
             if edge.data.subset is not None:

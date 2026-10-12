@@ -29,7 +29,7 @@ end subroutine kernel
     assert "data_allocated" not in sdfg.symbols, (
         "tracker symbol should not be emitted when no kernel ALLOCATED reader exists"
     )
-    orphan_states = [s.label for s in sdfg.all_states() if s.label.startswith("post_data_allocated")]
+    orphan_states = [s.label for s in sdfg.states() if s.label.startswith("post_data_allocated")]
     assert not orphan_states, f"orphan post_data_allocated_* init state(s) survived: {orphan_states}"
 
 

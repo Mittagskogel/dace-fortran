@@ -51,7 +51,7 @@ def test_section_assign_sdfg_structure(tmp_path: Path):
     assert "b" in loop.loop_condition.as_string
 
     tasklets = []
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for n in state.nodes():
             if isinstance(n, nd.Tasklet):
                 tasklets.append(n)

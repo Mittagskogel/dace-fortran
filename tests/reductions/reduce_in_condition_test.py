@@ -27,7 +27,7 @@ def _build(src_text: str, tmp_path, name: str):
 def _reduce_nodes(sdfg):
     from dace.libraries.standard.nodes import Reduce
 
-    return [n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, Reduce)]
+    return [n for st in sdfg.states() for n in st.nodes() if isinstance(n, Reduce)]
 
 
 def _has_view(sdfg):

@@ -85,7 +85,7 @@ subroutine main(t, f, mask, out, n)
 end subroutine main
 """
     sdfg = build_sdfg(src, tmp_path, name="main").build()
-    libnodes = [n for state in sdfg.all_states() for n in state.nodes() if isinstance(n, MergeLibraryNode)]
+    libnodes = [n for state in sdfg.states() for n in state.nodes() if isinstance(n, MergeLibraryNode)]
     assert len(libnodes) == 1, f"expected exactly one MergeLibraryNode, got {len(libnodes)}"
 
 

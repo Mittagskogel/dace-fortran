@@ -1628,14 +1628,14 @@ class SDFGBuilder:
         if not prov:
             return
         written = set()
-        for state in sdfg.all_states():
+        for state in sdfg.states():
             for node in state.data_nodes():
                 if state.in_degree(node) > 0:
                     written.add(node.data)
         # Value-symbols that appear in a memlet subset -- a live data-access index,
         # not a frozen extent.  (Extents ride descriptor shapes, checked nowhere here.)
         subset_syms = set()
-        for state in sdfg.all_states():
+        for state in sdfg.states():
             for e in state.edges():
                 for sub in (e.data.subset, e.data.other_subset):
                     if isinstance(sub, Subset):
@@ -1974,7 +1974,7 @@ class SDFGBuilder:
         from dace.sdfg.nodes import AccessNode
 
         bad: list = []
-        for state in sdfg.all_states():
+        for state in sdfg.states():
             for n in state.nodes():
                 if isinstance(n, AccessNode) and n.data not in sdfg.arrays:
                     bad.append((state.label, n.data))
@@ -2050,7 +2050,7 @@ class SDFGBuilder:
         # arrays actually referenced by an AccessNode or a memlet
         # ``data`` field; an unused transient contributes nothing.
         used_arrays: set = set()
-        for state in sdfg.all_states():
+        for state in sdfg.states():
             for n in state.nodes():
                 if isinstance(n, AccessNode):
                     used_arrays.add(n.data)
@@ -2116,7 +2116,7 @@ class SDFGBuilder:
         target = unresolved[0]
         pat = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(target)}(?![A-Za-z0-9_])")
         examples: list = []
-        for state in sdfg.all_states():
+        for state in sdfg.states():
             for edge in state.edges():
                 m = edge.data
                 if m is None or not m.data:

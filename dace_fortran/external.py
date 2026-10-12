@@ -559,7 +559,7 @@ def inline_external(sdfg: dace.SDFG, name: str, callee_sdfg: dace.SDFG) -> int:
     # Walk every state for ExternalCall nodes; we mutate as we go but
     # collect first so the walk isn't disturbed.
     targets = []
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for node in list(state.nodes()):
             if isinstance(node, ExternalCall) and node.c_name == target_c_name:
                 targets.append((state, node))

@@ -41,7 +41,7 @@ end subroutine kernel
     from dace.sdfg import nodes as nd
 
     bad = []
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         out_nodes = [n for n in state.nodes() if isinstance(n, nd.AccessNode) and n.data == "out"]
         if not out_nodes:
             continue
@@ -80,7 +80,7 @@ end subroutine kernel
     from dace.sdfg import nodes as nd
 
     bad = []
-    for s in sdfg.all_states():
+    for s in sdfg.states():
         st_nodes = [n for n in s.nodes() if isinstance(n, nd.AccessNode) and n.data == "state"]
         if not st_nodes:
             continue

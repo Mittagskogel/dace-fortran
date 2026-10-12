@@ -15,7 +15,7 @@ from tests._util import build_sdfg
 
 
 def _libnode_names(sdfg):
-    return {type(n).__name__ for st in sdfg.all_states() for n in st.nodes()}
+    return {type(n).__name__ for st in sdfg.states() for n in st.nodes()}
 
 
 @pytest.mark.parametrize(

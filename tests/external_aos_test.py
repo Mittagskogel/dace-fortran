@@ -179,7 +179,7 @@ def _external_call_body(sdfg):
     """Return the C body of the single ExternalCall node in ``sdfg``."""
     from dace_fortran.external import ExternalCall
 
-    for st in sdfg.all_states():
+    for st in sdfg.states():
         for nd in st.nodes():
             if isinstance(nd, ExternalCall):
                 return nd.body
@@ -323,10 +323,10 @@ def test_full_velocity_advection_external_call(tmp_path):
         sdfg = build_sdfg(src, tmp_path, name="velext", entry="mo_velocity_advection::velocity_tendencies").build()
         from dace_fortran.external import ExternalCall
 
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "external call not lowered in full velocity"
         assert "struct" not in node.body, f"expected shallow pass, got:\n{node.body}"
-        st = next(s for s in sdfg.all_states() if node in s.nodes())
+        st = next(s for s in sdfg.states() if node in s.nodes())
         touched = {e.data.data for e in st.in_edges(node)} | {e.data.data for e in st.out_edges(node)}
         assert touched == {"p_prog_w"}, f"external should read/write the resolved field p_prog_w, got {touched}"
     finally:
@@ -446,9 +446,9 @@ def test_v2_aos_external_with_nested_struct(tmp_path):
         keep_external("ext_v2", args=(Arg(kind=ArgKind.AOS, intent=Intent.INOUT),))
         sdfg = build_sdfg(_V2_NESTED_SRC, tmp_path, name="kern", entry="m_v2::kern").build()
         # Three leaves (ip%u, ip%v, scale) wired in declaration order as s_ip_u/s_ip_v/s_scale.
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "external call not lowered for nested struct"
-        st = next(s for s in sdfg.all_states() if node in s.nodes())
+        st = next(s for s in sdfg.states() if node in s.nodes())
         touched = {e.data.data for e in st.in_edges(node)} | {e.data.data for e in st.out_edges(node)}
         assert touched == {"s_ip_u", "s_ip_v", "s_scale"}, f"expected three SoA-flat leaves, got {touched}"
     finally:
@@ -492,7 +492,7 @@ def test_v2_aos_external_with_allocatable_member(tmp_path):
         keep_external("ext_v2_alloc", args=(Arg(kind=ArgKind.AOS, intent=Intent.INOUT),))
         sdfg = build_sdfg(_V2_ALLOCATABLE_SRC, tmp_path, name="kern", entry="m_v2_alloc::kern").build()
         # One ExternalCall node with the per-leaf marshal-expansion shape.
-        ext = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        ext = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert ext is not None, "marshal expansion did not produce an ExternalCall"
     finally:
         clear_external_registry()
@@ -542,9 +542,9 @@ def test_v2_aos_external_with_value_record_array_member(tmp_path):
     try:
         keep_external("ext_v2_vra", args=(Arg(kind=ArgKind.AOS, intent=Intent.INOUT, c_abi=CAbi.PER_MEMBER_SOA),))
         sdfg = build_sdfg(_V2_VALUE_RECORD_ARRAY_SRC, tmp_path, name="kern", entry="m_v2_vra::kern").build()
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "marshal expansion did not produce an ExternalCall"
-        st = next(s for s in sdfg.all_states() if node in s.nodes())
+        st = next(s for s in sdfg.states() if node in s.nodes())
         touched = {e.data.data for e in st.in_edges(node)} | {e.data.data for e in st.out_edges(node)}
         # Two record fields cross as per-field SoA companions -- not the AoS box, not a single s_e member.
         assert "s_e_v1" in touched and "s_e_v2" in touched, (
@@ -615,7 +615,7 @@ end module
         # Body contract: no ``_aosbuf`` struct, no AoS pack/unpack.
         from dace_fortran.external import ExternalCall
 
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None
         assert "_aosbuf" not in node.body, f"per_member_soa path emitted an AoS buffer; body=\n{node.body}"
         # Leaves forwarded verbatim in marshal-expansion order; per-member ctype* decl
@@ -685,9 +685,9 @@ def test_marshal_skips_unused_pointer_to_record_handle(tmp_path):
             dynamic_extents_abi=True,
         )
         sdfg = build_sdfg(_HANDLE_UNUSED_SRC, tmp_path, name="kern", entry="m_handle_ok::kern").build()
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "marshal expansion did not produce an ExternalCall"
-        st = next(s for s in sdfg.all_states() if node in s.nodes())
+        st = next(s for s in sdfg.states() if node in s.nodes())
         touched = {e.data.data for e in st.in_edges(node)} | {e.data.data for e in st.out_edges(node)}
         # The value-record fields cross; the comm-pattern handle does NOT.
         assert "p_edges_primal_normal_cell_v1" in touched and "p_edges_primal_normal_cell_v2" in touched
@@ -808,7 +808,7 @@ def test_marshal_scalar_symbol_member_forwarded_by_value(tmp_path):
         assert "s_n" in sdfg.symbols and "s_n" not in sdfg.arrays, (
             f"expected s_n as a symbol; symbols={('s_n' in sdfg.symbols)} arrays={('s_n' in sdfg.arrays)}"
         )
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None
         # n crosses by value: body renders (int)(s_n), decl carries scalar int (not int*).
         assert "(s_n)" in node.body, f"symbol member not forwarded by value; body=\n{node.body}"

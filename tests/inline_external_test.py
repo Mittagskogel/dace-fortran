@@ -78,7 +78,7 @@ end module caller_mod
 
     ext_sites = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, ExternalCall) and n.c_name == "add_one"
     ]
@@ -96,7 +96,7 @@ end module caller_mod
     # Post-condition: the ExternalCall is gone and a NestedSDFG wraps the callee SDFG.
     ext_sites_after = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, ExternalCall) and n.c_name == "add_one"
     ]
@@ -105,7 +105,7 @@ end module caller_mod
 
     nested_sites = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, NestedSDFG) and n.sdfg is callee_sdfg
     ]
@@ -179,7 +179,7 @@ end module caller_mod
 
     ext_sites = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, ExternalCall) and n.c_name == callee_ext_name
     ]
@@ -202,7 +202,7 @@ end module caller_mod
 
     ext_after = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, ExternalCall) and n.c_name == callee_ext_name
     ]
@@ -211,7 +211,7 @@ end module caller_mod
 
     nested_after = [
         n
-        for state in caller_sdfg.all_states()
+        for state in caller_sdfg.states()
         for n in state.nodes()
         if isinstance(n, NestedSDFG) and n.sdfg is callee_sdfg
     ]

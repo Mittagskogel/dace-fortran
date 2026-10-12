@@ -138,7 +138,7 @@ def views_with_source_link(sdfg):
     incoming ``'views'`` (source->view) linking edge.  An orphaned view_alias --
     the pre-fix bug -- has a View descriptor but no such AccessNode/edge."""
     views = {n: False for n, d in sdfg.arrays.items() if isinstance(d, dace.data.View)}
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for node in state.data_nodes():
             if node.data in views and any(e.dst_conn == "views" for e in state.in_edges(node)):
                 views[node.data] = True

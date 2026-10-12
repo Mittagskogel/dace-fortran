@@ -13,7 +13,7 @@ from tests._util import build_sdfg
 
 def _tasklet_for(sdfg, code_fragment: str):
     """Find the (single) tasklet whose code contains ``code_fragment``."""
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         for n in state.nodes():
             if isinstance(n, nd.Tasklet) and code_fragment in n.code.as_string:
                 return n

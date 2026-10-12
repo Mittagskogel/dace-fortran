@@ -157,7 +157,7 @@ def test_callback_abi_aligns_slot_for_slot_with_inner_shim(tmp_path: Path):
     apply_external_functions(do_not_emit=_DO_NOT_EMIT)
     try:
         outer = make_builder(_TU.read_text(), entry=_ENTRY, name="solve_nh_abi", out_dir=tmp_path / "sdfg").build()
-        node = next((n for st in outer.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in outer.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "outer solve_nh SDFG emitted no velocity ExternalCall"
         call = re.search(r"\bvelocity_tendencies_c\(([^;]*)\)\s*;", node.body)
         outer_args = [a.strip() for a in call.group(1).split(",")]

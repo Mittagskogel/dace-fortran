@@ -135,7 +135,7 @@ def test_isend_irecv_wait_lower_to_mpi_libnodes(tmp_path: Path):
         assert d.transient and d.dtype == dace.dtypes.opaque("MPI_Request")
 
     # one state per MPI call (4) + entry state -> interstate-edge ordering of the side-effecting MPI nodes.
-    assert len(list(sdfg.all_states())) >= 5
+    assert len(list(sdfg.states())) >= 5
     sdfg.validate()
 
 

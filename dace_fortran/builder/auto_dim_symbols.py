@@ -72,7 +72,7 @@ class AutoDimSDFG(dace.SDFG):
 
     def _touched_arrays(self) -> set[str]:
         """Names of the arrays some state of this SDFG reads or writes through an access node."""
-        return {node.data for state in self.all_states() for node in state.data_nodes()}
+        return {node.data for state in self.states() for node in state.data_nodes()}
 
     def to_json(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Serialise as plain ``SDFG`` so strict-type ``from_json`` (e.g.

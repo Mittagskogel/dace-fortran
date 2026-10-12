@@ -67,7 +67,7 @@ def abi_proxy_transients(sdfg: SDFG) -> set[str]:
     and keyed on that pass's OWN state-label constant so a rename there cannot silently unhook this.
     """
     proxies: set[str] = set()
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         if not state.label.startswith(STAGING_STATE_PREFIXES):
             continue
         for edge in state.edges():

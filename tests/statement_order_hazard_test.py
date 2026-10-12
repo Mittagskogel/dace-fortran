@@ -95,7 +95,7 @@ def reverse_node_order(sdfg):
     A pure permutation of an unordered set: on a graph whose dataflow records Fortran's statement
     order this cannot change the result.  On a hazardous state it flips the codegen tie-break.
     """
-    for state in sdfg.all_states():
+    for state in sdfg.states():
         nodes = list(state.nodes())
         edges = list(state.edges())
         for node in nodes:

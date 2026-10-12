@@ -107,9 +107,9 @@ def _outer_patch_leaf_order(tmp_path):
     try:
         sdfg = build_sdfg(_OUTER_SRC, tmp_path / "outer", name="driver", entry="m_align_outer::driver").build()
         sdfg.validate()
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "no ExternalCall lowered"
-        st = next(s for s in sdfg.all_states() if node in s.nodes())
+        st = next(s for s in sdfg.states() if node in s.nodes())
         # connector -> the SDFG array it memlets (data leaves).
         conn_to_arr = {}
         for e in st.in_edges(node):
@@ -287,7 +287,7 @@ def _neg_lb_outer_marshal_args(tmp_path):
     try:
         sdfg = build_sdfg(_NEG_LB_OUTER, tmp_path / "out", name="driver", entry="m_neglb_outer::driver").build()
         sdfg.validate()
-        node = next((n for st in sdfg.all_states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
+        node = next((n for st in sdfg.states() for n in st.nodes() if isinstance(n, ExternalCall)), None)
         assert node is not None, "outer driver SDFG emitted no velo ExternalCall"
         call = re.search(r"\bvelo\(([^;]*)\)\s*;", node.body)
         assert call, f"velo call not found in body:\n{node.body}"
