@@ -462,7 +462,8 @@ std::string buildIndexExpr(mlir::Value v, int d) {
            ")";
   }
   if ((nm == "arith.divsi" || nm == "arith.divui") && def->getNumOperands() == 2) {
-    const std::string a = buildIndexExpr(def->getOperand(0), d + 1), b = buildIndexExpr(def->getOperand(1), d + 1);
+    const std::string a = buildIndexExpr(def->getOperand(0), d + 1);
+    const std::string b = buildIndexExpr(def->getOperand(1), d + 1);
     return nm == "arith.divsi" ? truncatedDivision(a, b) : floorDivision(a, b);
   }
   // ``MOD(i, k)`` in an index expression (``arr(mod(i,2)+1)``) lowers to ``arith.remsi`` / ``arith.remui``.
@@ -620,8 +621,9 @@ ASTNode buildAssignNode(hlfir::AssignOp assign) {
           std::ostringstream o;
           o << std::setprecision(17) << f.getValueAsDouble();
           node.expr = o.str();
-        } else if (auto i = mlir::dyn_cast<mlir::IntegerAttr>(cst.getValue()))
+        } else if (auto i = mlir::dyn_cast<mlir::IntegerAttr>(cst.getValue())) {
           node.expr = std::to_string(i.getInt());
+        }
       }
     }
   }
@@ -648,8 +650,13 @@ ASTNode buildAssignNode(hlfir::AssignOp assign) {
     // offset-in-subscript shape: one bogus read per non-1-based dim).  The box
     // carries no data read of its own, so stop the walk here.  Match by op
     // name (the same form the ``buildIndexExpr`` box_dims handler above uses) --
-    // a typed ``isa<fir::BoxDimsOp>`` does not catch this dialect's op here.
-    if (op->getName().getStringRef() == "fir.box_dims") return;
+    // a typed ``isa<fir::BoxDimsOp>`` does not catch this dialect's op here. A section's extent is its triplet bounds,
+    // though, and those may read data (``SIZE(orb(1 : ngk(1), :))``): collect only them.
+    if (op->getName().getStringRef() == "fir.box_dims") {
+      if (auto dg = mlir::dyn_cast_or_null<hlfir::DesignateOp>(op->getOperand(0).getDefiningOp()))
+        for (auto idx : dg.getIndices()) collectReads(idx, depth + 1);
+      return;
+    }
     if (auto dg = mlir::dyn_cast<hlfir::DesignateOp>(op)) {
       // Use ``expandDesignateChain`` so AoR shapes
       // (``arr(i) % x(2)`` -- a chain of two designates) produce an
@@ -1389,7 +1396,7 @@ std::vector<ASTNode> buildSectionToSectionAssign(hlfir::AssignOp assign, mlir::V
     std::vector<std::pair<std::string, std::string>> bounds;
     for (auto& d : boundsSide)
       if (d.isTriplet) bounds.emplace_back(d.lo, d.hi);
-    for (int i = (int)bounds.size() - 1; i >= 0; --i) {
+    for (int i = static_cast<int>(bounds.size()) - 1; i >= 0; --i) {
       ASTNode wrap;
       wrap.kind = "loop";
       wrap.loop_iter = iter_names[i];
@@ -1477,7 +1484,7 @@ std::vector<ASTNode> buildWholeArrayScalarBroadcast(hlfir::AssignOp assign) {
   inner.accesses.push_back(std::move(wa));
 
   ASTNode current = inner;
-  for (int i = (int)rank - 1; i >= 0; --i) {
+  for (int i = static_cast<int>(rank) - 1; i >= 0; --i) {
     ASTNode wrap;
     wrap.kind = "loop";
     wrap.loop_iter = iter_names[i];
@@ -1904,7 +1911,7 @@ std::vector<ASTNode> buildSectionReduceAssign(hlfir::AssignOp assign, hlfir::Des
   // Wrap accumulate in one loop per section dim (outermost first,
   // matching buildElementalAssign's convention).
   ASTNode current = acc;
-  int revIdx = (int)sectionRank;
+  int revIdx = static_cast<int>(sectionRank);
   for (auto it = dims.rbegin(); it != dims.rend(); ++it) {
     if (!it->isTriplet) continue;
     --revIdx;

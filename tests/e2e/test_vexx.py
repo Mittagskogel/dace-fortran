@@ -64,9 +64,6 @@ def binding_entry(sdfg, plan, src_path: Path, out: Path, lib_name: str):
         name=lib_name,
         prelude_sources=[src_path],
         extra_sources=[vexx._CALLER, driver_path],
-        # pruned qvan2 has an implicit-interface COMPLEX->REAL arg-kind mismatch (qg) behind
-        # IF(okvan) -- never run on the no-op path.
-        extra_flags=["-fallow-argument-mismatch"],
     )
 
     fn = lib.load().run_vexx_dace_c
@@ -87,7 +84,7 @@ def test_vexx_pipeline_numerical_e2e(tmp_path, e2e_cpu_args):
     psi_dace, hpsi_dace = psi_ref.copy(order="F"), hpsi_ref.copy(order="F")
     run(lda, n, m, psi_ref.ctypes.data, hpsi_ref.ctypes.data)
 
-    src = vexx._make_paw_flag_public(vexx._restore_fft_interfaces(vexx._SRC.read_text()))
+    src = vexx._make_paw_flag_public(vexx._preprocess(vexx._SRC.read_text()))
     src_path = tmp_path / "qe.f90"
     src_path.write_text(src)
 

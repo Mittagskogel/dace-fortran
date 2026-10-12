@@ -201,7 +201,13 @@ def emit_assign(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFlow
         # uniformly for both single-name (``indices_end = endidx``) and
         # COMPOUND (``nks = kunit * ifloor(nkbl / npool)``) right-hand sides;
         # plain ``i = i + 1`` passes through verbatim.
-        rhs = array_read_to_dace_expr(builder, n, ctx.iter_map, ctx.sdfg)
+        # A read an index nests (``stown(i1, i2)`` in ``gr = iproc2(stown(i1, i2))``) indexes data, so it is staged
+        # into a symbol first: an access names only symbols.
+        if indirect_exprs(builder, n):
+            ctx.flush(builder, region)
+            ctx.ensure(region)
+        indirect_syms = mint_indirect_syms(builder, ctx, region, n)
+        rhs = array_read_to_dace_expr(builder, n, ctx.iter_map, ctx.sdfg, indirect_syms)
         rhs = _strip_dace_casts(rhs)
         # No-op symbol self-assignment (``x = x``): an inlined callee dummy
         # bound to an actual that flattens to the SAME symbol name -- e.g. the

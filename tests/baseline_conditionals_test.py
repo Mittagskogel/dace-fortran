@@ -84,6 +84,69 @@ end subroutine ifcyc
     np.testing.assert_allclose(d_sdfg, d_ref)
 
 
+def test_cycle_before_a_loop_bounded_by_an_array_element(tmp_path):
+    """``IF (...) CYCLE`` ahead of ``DO ih = 1, nh(nt)`` (QE h_psi's ``add_vuspsir_gamma``): the CYCLE turns the
+    enclosing loop into an scf.while, whose DO bounds must keep their subscript instead of the bare ``nh``."""
+    src = """
+SUBROUTINE cycbound(nh, ityp, mb, nsp, nat, out)
+  IMPLICIT NONE
+  INTEGER, INTENT(IN) :: nsp, nat
+  INTEGER, INTENT(IN) :: nh(nsp), ityp(nat), mb(nat)
+  INTEGER, INTENT(OUT) :: out
+  INTEGER :: ih, nt, ia
+  out = 0
+  DO nt = 1, nsp
+    DO ia = 1, nat
+      IF (ityp(ia) == nt) THEN
+        IF (mb(ia) == 0) CYCLE
+        DO ih = 1, nh(nt)
+          out = out + ih * ia
+        END DO
+      END IF
+    END DO
+  END DO
+END SUBROUTINE
+"""
+    mod = f2py_compile(src, tmp_path / "ref", "cycbound")
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="cycbound").build()  # the default pipeline, as h_psi builds
+
+    nh = np.array([3, 5], dtype=np.int32)
+    ityp = np.array([1, 2, 2, 1], dtype=np.int32)
+    mb = np.array([1, 0, 1, 1], dtype=np.int32)
+    want = mod.cycbound(nh, ityp, mb)
+    out = np.zeros(1, dtype=np.int32)
+    sdfg(nh=nh, ityp=ityp, mb=mb, nsp=np.int32(2), nat=np.int32(4), out=out)
+    assert out[0] == want
+
+
+def test_cycle_before_an_indirect_scalar_read(tmp_path):
+    """``IF (idx(mc) < 1) CYCLE`` then ``i1 = in1(idx(mc))`` (QE h_psi's ``sticks_dist_new``): the nested index read
+    must keep its subscript instead of assigning the whole ``in1`` to the scalar."""
+    src = """
+SUBROUTINE cycind(idx, in1, yc, nct, n)
+  IMPLICIT NONE
+  INTEGER, INTENT(IN) :: nct, n
+  INTEGER, INTENT(IN) :: idx(nct), in1(n)
+  INTEGER, INTENT(INOUT) :: yc(n)
+  INTEGER :: mc, i1
+  DO mc = 1, nct
+    IF (idx(mc) < 1) CYCLE
+    i1 = in1(idx(mc))
+    yc(i1) = yc(i1) + 1
+  END DO
+END SUBROUTINE
+"""
+    mod = f2py_compile(src, tmp_path / "ref", "cycind")
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="cycind").build()
+    idx = np.array([2, 0, 3, 2], dtype=np.int32)
+    in1 = np.array([3, 1, 2], dtype=np.int32)
+    want = np.zeros(3, dtype=np.int32)
+    mod.cycind(idx, in1, want)
+    got = np.zeros(3, dtype=np.int32)
+    sdfg(idx=idx, in1=in1, yc=got, nct=np.int32(4), n=np.int32(3))
+    np.testing.assert_array_equal(got, want)
+
+
 if __name__ == "__main__":
     import pytest
 

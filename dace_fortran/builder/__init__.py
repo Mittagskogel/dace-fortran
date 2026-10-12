@@ -44,7 +44,7 @@ import ast
 import gc
 import weakref
 from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from dace import SDFG, InterstateEdge, SDFGState, config
 from dace.data import Data
@@ -424,10 +424,112 @@ MULTI_FILE_PIPELINE = (
 # Fortran physics-variable names, so renaming them would break
 # user-side bindings interfaces that key on the original name.
 #
+# C++ keywords are reserved too, for containers only: generated code declares
+# every container by its name, and ``INTEGER :: new`` (QE h_psi) would be
+# ``int new;``. Subset strings are rewritten for the sympy names alone, as they
+# also hold casts and operators spelled like C++ keywords (``int``, ``and``).
+#
 # The bridge renames any matching Fortran identifier to ``program_<name>``
 # at the SDFG layer; the binding emitter restores the original name on
 # the Python wrapper.
-RESERVED_DACE_NAMES = frozenset({"test", "doctest", "im", "re", "ln", "limit"})
+_CPP_KEYWORDS = frozenset(
+    {
+        "alignas",
+        "alignof",
+        "and",
+        "and_eq",
+        "asm",
+        "auto",
+        "bitand",
+        "bitor",
+        "bool",
+        "break",
+        "case",
+        "catch",
+        "char",
+        "char8_t",
+        "char16_t",
+        "char32_t",
+        "class",
+        "compl",
+        "concept",
+        "const",
+        "consteval",
+        "constexpr",
+        "constinit",
+        "const_cast",
+        "continue",
+        "co_await",
+        "co_return",
+        "co_yield",
+        "decltype",
+        "default",
+        "delete",
+        "do",
+        "double",
+        "dynamic_cast",
+        "else",
+        "enum",
+        "explicit",
+        "export",
+        "extern",
+        "false",
+        "float",
+        "for",
+        "friend",
+        "goto",
+        "if",
+        "inline",
+        "int",
+        "long",
+        "mutable",
+        "namespace",
+        "new",
+        "noexcept",
+        "not",
+        "not_eq",
+        "nullptr",
+        "operator",
+        "or",
+        "or_eq",
+        "private",
+        "protected",
+        "public",
+        "register",
+        "reinterpret_cast",
+        "requires",
+        "return",
+        "short",
+        "signed",
+        "sizeof",
+        "static",
+        "static_assert",
+        "static_cast",
+        "struct",
+        "switch",
+        "template",
+        "this",
+        "thread_local",
+        "throw",
+        "true",
+        "try",
+        "typedef",
+        "typeid",
+        "typename",
+        "union",
+        "unsigned",
+        "using",
+        "virtual",
+        "void",
+        "volatile",
+        "wchar_t",
+        "while",
+        "xor",
+        "xor_eq",
+    }
+)
+SYMPY_RESERVED_NAMES = frozenset({"test", "doctest", "im", "re", "ln", "limit"})
+RESERVED_DACE_NAMES = SYMPY_RESERVED_NAMES | _CPP_KEYWORDS
 
 DACE_NAME_PREFIX = "program_"
 
@@ -561,6 +663,24 @@ def _rename_reserved_collisions(sdfg: SDFG) -> dict:
     for old, new in renames.items():
         sdfg.replace(old, new)
     return renames
+
+
+class PositionElement(NamedTuple):
+    array: str
+    indices: tuple[int, ...]
+
+
+def _position_symbol_element(name: str, sdfg: SDFG) -> PositionElement | None:
+    """The array element a position symbol ``__sym_<array>_<i1>_..._<in>`` names (1-based indices, one per
+    dimension of ``array``), or ``None``; the longest array name ``sdfg`` declares wins."""
+    if not name.startswith("__sym_"):
+        return None
+    parts = name[len("__sym_") :].split("_")
+    for k in range(len(parts) - 1, 0, -1):
+        array, indices = "_".join(parts[:k]), parts[k:]
+        if array in sdfg.arrays and all(i.isdigit() for i in indices) and len(indices) == len(sdfg.arrays[array].shape):
+            return PositionElement(array, tuple(int(i) for i in indices))
+    return None
 
 
 def demangle_fortran_proc(sym: str) -> str:
@@ -1436,6 +1556,17 @@ class SDFGBuilder:
             dims = ", ".join(f"({p.strip()}) - 1" for p in idx.split(","))
             seeds[sym] = f"{arr}[{dims}]"
             self._value_symbol_provenance[sym] = (arr, idx)
+        # A constant-index element as an extent (``orbital(1 : ngk(1), :)`` -> ``__sym_ngk_1``) is named like the
+        # position symbols an expression read seeds, but no expression may read it: seed every one an extent names.
+        for v in self.arrays.values():
+            for sym in v.shape_symbols:
+                element = _position_symbol_element(sym, sdfg)
+                if element is None or sym in seeds:
+                    continue
+                if sym not in sdfg.symbols:
+                    sdfg.add_symbol(sym, dace.int64)
+                seeds[sym] = f"{element.array}[{', '.join(f'{i - 1}' for i in element.indices)}]"
+                self._value_symbol_provenance[sym] = (element.array, ",".join(map(str, element.indices)))
         if not seeds:
             return
         ctx.flush(self, sdfg)
@@ -1525,6 +1656,7 @@ class SDFGBuilder:
         from dace.transformation.passes.unique_loop_iterators import UniqueLoopIterators
 
         from dace_fortran.builder.scalar_shape_symbol_cleanup import RemoveScalarFortranShapeSymbols
+        from dace_fortran.builder.view_interstate_reads import stage_view_reads_off_interstate_edges
         from dace_fortran.integer_power_exponents import IntegerizePowerExponents
 
         # Empty-region cleanup: any ControlFlowRegion (LoopRegion,
@@ -1542,6 +1674,8 @@ class SDFGBuilder:
         for region in list(sdfg.all_control_flow_regions()):
             if len(list(region.nodes())) == 0:
                 region.add_state("empty_body", is_start_block=True)
+
+        stage_view_reads_off_interstate_edges(self, sdfg)
 
         uniq_loop_iter_pass = UniqueLoopIterators()
         uniq_loop_iter_pass.assign_loop_iterator_post_value = True
