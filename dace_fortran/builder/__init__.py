@@ -50,7 +50,7 @@ from dace import SDFG, InterstateEdge, SDFGState, config
 from dace.data import Data
 from dace.frontend.python import astutils
 from dace.properties import CodeBlock
-from dace.sdfg.state import ControlFlowRegion
+from dace.sdfg.state import ControlFlowRegion, LoopRegion
 from dace.sdfg.utils import specialize_symbols
 from dace.subsets import Subset
 
@@ -610,6 +610,24 @@ def reject_unlowered_expressions(sdfg: SDFG) -> None:
             + " site(s)); the Fortran construct behind each is not supported yet:\n  "
             + "\n  ".join(leaks[:20])
         )
+
+
+def reject_loop_iterator_assignments(sdfg: SDFG) -> None:
+    """Refuse an interstate assignment to a ``LoopRegion``'s iterator anywhere inside that region.
+
+    The region owns its iterator through ``init_expr`` / ``update_expr``; a body edge writing it as well races with
+    that update. The builder never emits one, so one present here is a builder bug.
+    """
+    sites = []
+    for sd in sdfg.all_sdfgs_recursive():
+        for loop in sd.all_control_flow_regions():
+            if not isinstance(loop, LoopRegion) or not loop.loop_variable:
+                continue
+            for edge in loop.all_interstate_edges():
+                if loop.loop_variable in edge.data.assignments:
+                    sites.append(f"{sd.name}/{loop.label}: {edge.src.label} -> {edge.dst.label}")
+    if sites:
+        raise RuntimeError("an interstate edge assigns the iterator of its own LoopRegion:\n  " + "\n  ".join(sites))
 
 
 def _rename_in_expr(expr: str, name: str, new_name: str) -> str:
@@ -1253,6 +1271,7 @@ class SDFGBuilder:
         from dace_fortran.builder.loop_local_arrays import place_loop_local_arrays_on_stack
 
         place_loop_local_arrays_on_stack(sdfg)
+        reject_loop_iterator_assignments(sdfg)
         # Validate the SDFG exactly as returned -- after every mutation
         # (post-gen passes, frozen-signature snapshot, auto-dim retype) --
         # so a caller never receives an unvalidated graph.

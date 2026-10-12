@@ -246,6 +246,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dace" },
     { name = "fparser" },
+    { name = "nanobind" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -260,7 +261,6 @@ dev = [
     { name = "fprettify" },
     { name = "meson" },
     { name = "mypy" },
-    { name = "nanobind" },
     { name = "ninja" },
     { name = "pre-commit" },
     { name = "pyright" },
@@ -284,7 +284,6 @@ mpi = [
 testing = [
     { name = "coverage" },
     { name = "meson" },
-    { name = "nanobind" },
     { name = "ninja" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -296,6 +295,7 @@ testing = [
 requires-dist = [
     { name = "dace", git = "https://github.com/spcl/dace.git?rev=66293ad6f5cf626ff4c821572b8eb24fbff93bf1" },
     { name = "fparser", specifier = ">0.2" },
+    { name = "nanobind" },
     { name = "networkx" },
     { name = "numpy" },
 ]
@@ -307,7 +307,6 @@ dev = [
     { name = "fprettify" },
     { name = "meson" },
     { name = "mypy", specifier = "==1.18.2" },
-    { name = "nanobind" },
     { name = "ninja" },
     { name = "pre-commit" },
     { name = "pyright", specifier = "==1.1.407" },
@@ -329,7 +328,6 @@ mpi = [{ name = "mpi4py" }]
 testing = [
     { name = "coverage" },
     { name = "meson" },
-    { name = "nanobind" },
     { name = "ninja" },
     { name = "pytest" },
     { name = "pytest-cov" },
