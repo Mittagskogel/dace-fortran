@@ -422,7 +422,7 @@ class ParseConfig:
         ident_map = analysis.identifier_specs(ast)
         keep: list[types.SPEC] = []
         for spec, node in ident_map.items():
-            if not isinstance(node, f03.Component_Decl) or len(spec) < 2:
+            if not isinstance(node, f03.Component_Decl) or len(spec) < analysis.MODULE_MEMBER_DEPTH:
                 continue
             tname, cname = spec[-2].lower(), spec[-1].lower()
             if cname in self.keep_type_components.get(tname, ()):

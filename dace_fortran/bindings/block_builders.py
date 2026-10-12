@@ -1331,9 +1331,9 @@ def _entry_presence_guard(iface: OriginalInterface, base: str) -> str:
     ddt_ua_*/ddt_va_* tendency pointers). Only the LEAF's storage class is tested;
     Fortran .and. has no guaranteed short-circuit, so a deferred ARRAY-of-records
     intermediate stays unguarded."""
-    parts = [p.strip() for p in base.split("%")]
-    if len(parts) < 2:
+    if "%" not in base:
         return ""
+    parts = [p.strip() for p in base.split("%")]
     root = parts[0].split("(")[0].strip().lower()
     arg = next((a for a in iface.args if a.name.lower() == root and a.struct_type), None)
     if arg is None:

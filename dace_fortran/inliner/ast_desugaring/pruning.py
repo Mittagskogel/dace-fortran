@@ -14,6 +14,9 @@ from fparser.two.utils import Base, walk
 from .. import ast_utils
 from . import analysis, types, utils
 
+#: An ``EQUIVALENCE (a, b)`` set relates two objects.
+_EQUIVALENCE_PAIR = 2
+
 
 def _nearest_scope_with_spec_part(node: Base) -> Base | None:
     """The nearest enclosing scope (module / main program / subprogram) of
@@ -81,9 +84,9 @@ def consolidate_uses(ast: f03.Program, alias_map: types.SPEC_TABLE | None = None
             if alias_map[spec].parent is sp.parent:
                 # If `nm` is just referring to the subprogram that `sp` is a part of, then just leave it be.
                 continue
-            if len(spec) == 2:
+            if len(spec) == analysis.MODULE_MEMBER_DEPTH:
                 mod_spec = spec[:-1]
-            elif len(spec) == 3 and spec[-2] == analysis.INTERFACE_NAMESPACE:
+            elif len(spec) == analysis.MODULE_MEMBER_DEPTH + 1 and analysis.is_interface_member(spec):
                 mod_spec = spec[:-2]
             else:
                 continue
@@ -169,7 +172,7 @@ def prune_coarsely(ast: f03.Program, keepers: Iterable[types.SPEC]) -> f03.Progr
 
         used_fns: set[types.SPEC] = set(keepers)
         for k, v in ident_map.items():
-            if len(k) < 2 or not isinstance(v, (f03.Function_Stmt, f03.Subroutine_Stmt)):
+            if len(k) < analysis.MODULE_MEMBER_DEPTH or not isinstance(v, (f03.Function_Stmt, f03.Subroutine_Stmt)):
                 continue
             vname = utils.find_name_of_stmt(v)
             box = alias_map[k[:-2] if k[-2] == analysis.INTERFACE_NAMESPACE else k[:-1]].parent
@@ -243,7 +246,7 @@ def prune_coarsely(ast: f03.Program, keepers: Iterable[types.SPEC]) -> f03.Progr
 
         used_ifaces: set[types.SPEC] = set()
         for k, v in ident_map.items():
-            if len(k) < 2 or k[-2] != analysis.INTERFACE_NAMESPACE:
+            if not analysis.is_interface_member(k):
                 continue
             vname = utils.find_name_of_stmt(v)
             box = alias_map[k[:-2]].parent
@@ -259,12 +262,12 @@ def prune_coarsely(ast: f03.Program, keepers: Iterable[types.SPEC]) -> f03.Progr
                 break
         for k, v in alias_map.items():
             vspec = analysis.ident_spec(v)
-            if len(vspec) < 2 or vspec[-2] != analysis.INTERFACE_NAMESPACE:
+            if not analysis.is_interface_member(vspec):
                 continue
             if k not in ident_map:
                 used_ifaces.add(vspec)
         for k, v in ident_map.items():
-            if len(k) < 2 or k[-2] != analysis.INTERFACE_NAMESPACE:
+            if not analysis.is_interface_member(k):
                 continue
             if k not in used_ifaces:
                 utils.remove_self(v.parent)
@@ -491,9 +494,9 @@ def prune_unused_objects(ast: f03.Program, keepers: list[types.SPEC], f2py_safe:
                     eqa, eqbs = eqv.children
                     eqbs = eqbs.children if eqbs else tuple()
                     eqz = (eqa, *eqbs)
-                    assert all(isinstance(z, f03.Part_Ref) for z in eqz) and len(eqz) == 2
+                    assert all(isinstance(z, f03.Part_Ref) for z in eqz) and len(eqz) == _EQUIVALENCE_PAIR
                     eqz = tuple(z for z in eqz if analysis.search_real_local_alias_spec(z.children[0], alias_map) != ns)
-                    if len(eqz) < 2:
+                    if len(eqz) < _EQUIVALENCE_PAIR:
                         utils.remove_self(eqv)
                 _, eqvs = c.children
                 if not (eqvs.children if eqvs else tuple()):

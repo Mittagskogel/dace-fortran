@@ -456,10 +456,9 @@ def assign_globally_unique_variable_names(ast: f03.Program, keepers: set[Union[s
         vref.string = uname
 
         # Global (module-level) var -- add a USE statement if needed.
-        if len(vspec) > 2:
+        if len(vspec) > analysis.MODULE_MEMBER_DEPTH:
             # Not directly in a toplevel module -- nothing to import.
             continue
-        assert len(vspec) == 2
         mod, _ = vspec
         if not isinstance(alias_map[(mod,)], f03.Module_Stmt):
             # We can only import modules.
@@ -491,10 +490,9 @@ def assign_globally_unique_variable_names(ast: f03.Program, keepers: set[Union[s
         utils.set_children(lit, (val, uname))
 
         # Global kind var -- add a USE statement if needed.
-        if len(kind_spec) > 2:
+        if len(kind_spec) > analysis.MODULE_MEMBER_DEPTH:
             # Not directly in a toplevel module -- nothing to import.
             continue
-        assert len(kind_spec) == 2
         mod, _ = kind_spec
         if not isinstance(alias_map[(mod,)], f03.Module_Stmt):
             # We can only import modules.
@@ -560,7 +558,6 @@ def consolidate_global_data_into_arg(ast: f03.Program, always_add_global_data_ar
     # Collect derived types for the global module.
     for dt in walk(ast, f03.Derived_Type_Def):
         dtspec = analysis.ident_spec(ast_utils.singular(ast_utils.children_of_type(dt, f03.Derived_Type_Stmt)))
-        assert len(dtspec) == 2
         mod, dtname = dtspec
         derived_type_lines.append(f"use {mod}, only : {dtname}")
     # Collect global vars for the global data structure.
@@ -597,10 +594,10 @@ def consolidate_global_data_into_arg(ast: f03.Program, always_add_global_data_ar
         if not isinstance(alias_map[local_spec], f03.Entity_Decl):
             continue
         edecl_spec = analysis.ident_spec(alias_map[local_spec])
-        assert len(edecl_spec) >= 2, (
+        assert len(edecl_spec) >= analysis.MODULE_MEMBER_DEPTH, (
             f"Fortran cannot possibly have a top-level global variable, outside any module; got {edecl_spec}"
         )
-        if len(edecl_spec) != 2:
+        if len(edecl_spec) != analysis.MODULE_MEMBER_DEPTH:
             # We cannot possibly have a module level variable declaration.
             continue
         mod, var = edecl_spec

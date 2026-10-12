@@ -14,6 +14,9 @@ from fparser.two.utils import Base, walk
 from .. import ast_utils
 from . import analysis, types, utils
 
+#: A ``CASE (low:high)`` value range has at most its two bounds.
+_CASE_RANGE_BOUNDS = 2
+
 
 def make_practically_constant_arguments_constants(ast: f03.Program, keepers: list[types.SPEC]) -> f03.Program:
     """
@@ -315,7 +318,7 @@ def const_eval_nodes(ast: f03.Program) -> f03.Program:
     # Second, target values in CASE statements.
     for rngl in reversed(walk(ast, f03.Case_Value_Range_List)):
         rng = len(rngl.children)
-        assert rng <= 2
+        assert rng <= _CASE_RANGE_BOUNDS
         # We currently do not yet support two children in Case_Value_Range,
         # but this implementation should be future-proof.
         # Attempt to constant-evaluate values in CASE statements.

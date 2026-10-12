@@ -46,6 +46,9 @@ def pin_sequential(node: _N) -> _N:
     return node
 
 
+#: ``MATMUL(TRANSPOSE(A), B)`` multiplies two operands.
+_MATMUL_OPERANDS = 2
+
 #: Intrinsics the bridge recognises but deliberately does not lower. dispatch.cpp still folds the
 #: runtime call into a libcall node, so the reject has to happen here, with the reason attached.
 UNSUPPORTED_INTRINSICS = {
@@ -289,8 +292,8 @@ def _emit_libcall(builder: SDFGBuilder, ctx: Ctx, n: NodeLike, region: ControlFl
     # folds into the BLAS call, no A^T transient. transB is the symmetric case; the node
     # supports it but the bridge only emits A-side today (Flang's op covers only that shape).
     if n.callee == "matmul_transpose":
-        if len(n.call_args) != 2:
-            raise RuntimeError(f"matmul_transpose: expected 2 operands, got {len(n.call_args)}")
+        if len(n.call_args) != _MATMUL_OPERANDS:
+            raise RuntimeError(f"matmul_transpose: expected {_MATMUL_OPERANDS} operands, got {len(n.call_args)}")
         opts = dict(n.options or {})
         opts["transA"] = True
         m_node = SyntheticNode(

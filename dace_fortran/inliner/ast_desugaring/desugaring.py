@@ -24,8 +24,6 @@ from fparser.two.utils import Base, BinaryOpBase, BlockBase, UnaryOpBase, walk
 from .. import ast_utils
 from . import analysis, pruning, types, utils
 
-INTERFACE_NAMESPACE = "__interface__"
-
 
 def deconstruct_enums(ast: f03.Program) -> f03.Program:
     """Replaces `ENUM` definitions with `INTEGER, PARAMETER` declarations, assigning
@@ -68,7 +66,7 @@ def deconstruct_interface_calls(ast: f03.Program) -> f03.Program:
         assert isinstance(mod, f03.Name)
         for c in ast_utils.children_of_type(olist, f03.Name):
             tgt_spec = analysis.find_real_ident_spec(c.string, scope_spec, alias_map)
-            if len(tgt_spec) < 2 or tgt_spec[-2] != INTERFACE_NAMESPACE:
+            if not analysis.is_interface_member(tgt_spec):
                 continue
             utils.replace_node(c, f03.Rename(f"{c.string}_{SUFFIX}_tmp => {c.string}"))
 
@@ -156,11 +154,9 @@ def deconstruct_interface_calls(ast: f03.Program) -> f03.Program:
             continue
 
         # Assumes a toplevel subprogram or one defined directly inside a module.
-        assert 1 <= len(conc_spec) <= 2
-        if len(conc_spec) == 1:
-            mod, pname = None, conc_spec[0]
-        else:
-            mod, pname = conc_spec
+        *outer, pname = conc_spec
+        assert len(outer) <= 1, f"expected a toplevel subprogram or one directly in a module, got {conc_spec}"
+        mod = outer[0] if outer else None
 
         if mod is None or mod == scope_spec[0]:
             # Already visible at top level or in the current module -- no alias needed.
@@ -303,7 +299,6 @@ def deconstruct_procedure_calls(ast: f03.Program) -> f03.Program:
             continue
 
         # Assumes a subprogram defined directly inside a module.
-        assert len(pname) == 2
         mod, proc_name = pname
 
         if mod == cmod:

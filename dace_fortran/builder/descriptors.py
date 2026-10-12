@@ -468,7 +468,7 @@ def scan_object_aliases(builder: SDFGBuilder) -> None:
             # synth transients share).
             if prefix.strip("_") and prefix not in known:
                 prefix_sinks.setdefault(prefix, set()).add(t)
-    opaque_owners = {p for p, members in prefix_sinks.items() if len(members) >= 2}
+    opaque_owners = {p for p, members in prefix_sinks.items() if len(members) > 1}
     for t in sinks:
         if any(t == owner or t.startswith(owner + "_") for owner in opaque_owners):
             defs.add(t)
@@ -885,8 +885,8 @@ def add_descriptors(builder: SDFGBuilder, sdfg: SDFG) -> None:
                 for src_d, sub in enumerate(v.view_subset):
                     if ":" not in sub:
                         continue  # scalar dim  --  drops out of the view
-                    parts = sub.split(":")
-                    sec_stride = int(parts[2]) if len(parts) >= 3 else 1
+                    _lo, _hi, *step = sub.split(":")
+                    sec_stride = int(step[0]) if step else 1
                     view_strides.append(src_strides[src_d] * sec_stride)
             # Only honour the derived strides if their length matches
             # the view's rank.  ``view_reshape`` cases use a

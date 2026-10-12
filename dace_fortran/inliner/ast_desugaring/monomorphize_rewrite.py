@@ -340,10 +340,10 @@ def _member_prefix_and_tail(obj: f03.Base) -> RefPrefixTail | None:
     if isinstance(obj, f03.Data_Ref):
         return _ref_prefix_and_tail(obj)
     if isinstance(obj, f03.Data_Pointer_Object):
-        parts = [c for c in obj.children if c != "%"]
-        if len(parts) < 2:
+        *prefix, tail = [c for c in obj.children if c != "%"]
+        if not prefix:
             return None
-        return RefPrefixTail("%".join(str(p) for p in parts[:-1]), str(parts[-1]))
+        return RefPrefixTail("%".join(str(p) for p in prefix), str(tail))
     return None
 
 
@@ -1747,7 +1747,7 @@ def _toposort_type_defs(spec: f03.Specification_Part) -> None:
     used as a component).  After consolidation a container that was retyped to a
     formerly-downstream arm would otherwise be "used before defined"."""
     dtds = list(ast_utils.children_of_type(spec, f03.Derived_Type_Def))
-    if len(dtds) < 2:
+    if len(dtds) <= 1:
         return
     local = {read_type_info(d).name: d for d in dtds}
 

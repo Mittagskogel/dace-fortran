@@ -126,7 +126,7 @@ def order_state(state: SDFGState) -> list[SkippedEdge]:
 
     skipped: list[SkippedEdge] = []
     for container, access_nodes in by_container.items():
-        if len(access_nodes) < 2:
+        if len(access_nodes) <= 1:
             continue
         ordered = sorted(access_nodes, key=state.node_id)
         reach = {id(n): descendants(state, n) for n in ordered}

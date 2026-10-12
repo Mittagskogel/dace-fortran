@@ -23,6 +23,14 @@ from . import optimizations, types, utils
 # Namespace for anonymous interfaces
 INTERFACE_NAMESPACE = "__interface__"
 
+#: Length of the spec ``(module, name)`` of an entity declared directly in a module.
+MODULE_MEMBER_DEPTH = 2
+
+
+def is_interface_member(spec: types.SPEC) -> bool:
+    """Whether ``spec`` names a procedure declared in an anonymous interface block."""
+    return len(spec) >= MODULE_MEMBER_DEPTH and spec[-2] == INTERFACE_NAMESPACE
+
 
 def ident_spec(node: utils.NAMED_STMTS_OF_INTEREST_TYPES) -> types.SPEC:
     """
@@ -669,17 +677,19 @@ def const_eval_basic_type(expr: Base, alias_map: types.SPEC_TABLE) -> types.NUMP
             return np.int32(_eval_selected_int_kind(int(p)))
         elif intr.string == "INT":
             kind: Union[int, types.NUMPY_TYPES] | None = types.DEFAULT_KIND
-            if len(args) == 2:
-                kind = const_eval_basic_type(args[-1], alias_map)
-            num = const_eval_basic_type(args[0], alias_map)
+            value_arg, *kind_arg = args
+            if kind_arg:
+                kind = const_eval_basic_type(kind_arg[0], alias_map)
+            num = const_eval_basic_type(value_arg, alias_map)
             if num is None or kind is None:
                 return None
             return _eval_int_literal(f03.Int_Literal_Constant(f"{int(num)}_{int(kind)}"), alias_map)
         elif intr.string == "REAL":
             kind = types.DEFAULT_KIND
-            if len(args) == 2:
-                kind = const_eval_basic_type(args[-1], alias_map)
-            num = const_eval_basic_type(args[0], alias_map)
+            value_arg, *kind_arg = args
+            if kind_arg:
+                kind = const_eval_basic_type(kind_arg[0], alias_map)
+            num = const_eval_basic_type(value_arg, alias_map)
             if num is None or kind is None:
                 return None
             valstr = str(num)
@@ -758,8 +768,8 @@ def find_type_of_entity(
             assert typ_name in {"INTEGER", "REAL", "COMPLEX", "LOGICAL"}
             # ``(KIND = expr)`` parses to 3 children ('(', expr, ')'); the
             # star-kind form ``TYPE*N`` to 2 children ('*', expr).
-            kind = kind.children[1] if len(kind.children) == 3 else kind.children[-1]
-            kind_val = const_eval_basic_type(kind, alias_map) or 4
+            kind = kind.children[1] if kind.children[0] == "(" else kind.children[-1]
+            kind_val = const_eval_basic_type(kind, alias_map) or types.DEFAULT_KIND
             # For COMPLEX the kind names the width of EACH real component
             # (COMPLEX(4) -> COMPLEX4 -> 2xFP32; COMPLEX(8) -> COMPLEX8 -> 2xFP64),
             # matching the REAL suffix convention.
@@ -822,8 +832,8 @@ def dataref_root(
     if isinstance(dref, f03.Name):
         root, rest = dref, []
     else:
-        assert len(dref.children) >= 2
-        root, rest = dref.children[0], dref.children[1:]
+        root, *rest = dref.children
+        assert rest, f"a data reference names a component after its root: {dref}"
         rest = [r for r in rest if r != "%"]
 
     if isinstance(root, f03.Name):
@@ -1092,9 +1102,10 @@ def compute_argument_signature(
                     return types.TYPE_SPEC("CHARACTER", "DIMENSION(:)")
                 if fname.string in {"SIZE"}:
                     return types.TYPE_SPEC("INTEGER")
-                kind = 4
-                if len(_args) == 2:
-                    kind_val = const_eval_basic_type(_args[-1], alias_map)
+                kind = types.DEFAULT_KIND
+                kind_arg = _args[1:2]  # the KIND of INT(x, KIND) / REAL(x, KIND)
+                if kind_arg:
+                    kind_val = const_eval_basic_type(kind_arg[0], alias_map)
                     if kind_val is not None:
                         kind = int(kind_val)
                 if fname.string in {"REAL"}:
@@ -1274,7 +1285,6 @@ def _const_eval_int(expr: Base, alias_map: types.SPEC_TABLE) -> int | None:
         if args:
             args = args.children
         if intr.string == "SELECTED_REAL_KIND":
-            assert len(args) == 2
             p, r = args
             p, r = _const_eval_int(p, alias_map), _const_eval_int(r, alias_map)
             assert p is not None and r is not None
