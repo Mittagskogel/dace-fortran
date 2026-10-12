@@ -55,6 +55,9 @@ struct ASTNode {
   // Per-call-arg slice subset, parallel to call_args. Empty = whole array; non-empty = a Fortran 1-based slice
   // expression (e.g. "1:3") for a sliced memlet.
   std::vector<std::string> call_arg_subsets;
+  // Slice subset of a libcall's section destination (``out(a, :, :) = matmul(...)``), in the form of
+  // call_arg_subsets. Empty for a whole-array or element destination.
+  std::string target_subset;
   // AoS-marshalling groups (hlfir-marshal-external-structs output): flat [start, count, ...] pairs marking
   // call_args[start..start+count) as one struct's members to re-pack in the generated C tasklet. Empty for an ordinary
   // call.

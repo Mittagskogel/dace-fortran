@@ -90,6 +90,7 @@ class SyntheticNode:
     callee: str = ""
     call_args: list[str] = field(default_factory=list)
     call_arg_subsets: list[str] = field(default_factory=list)
+    target_subset: str = ""
     aos_marshal_groups: list[int] = field(default_factory=list)
     reduce_src: str = ""
     reduce_wcr: str = ""

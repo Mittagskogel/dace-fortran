@@ -258,7 +258,7 @@ std::vector<ASTNode> buildElementalAssign(hlfir::AssignOp assign, hlfir::Element
               kHlfirExprToTransient[srcOp] = tmp;
 
               mlir::Type const rty = srcOp->getResult(0).getType();
-              auto shape = exprResultShape(rty);
+              auto shape = exprResultShape(rty, srcOp);
 
               ASTNode decl;
               decl.kind = "declare_transient";
@@ -331,7 +331,7 @@ std::vector<ASTNode> buildElementalAssign(hlfir::AssignOp assign, hlfir::Element
                         innerTr = "_libtmp_" + std::to_string(kLibTmpCounter++);
                         kHlfirExprToTransient[od] = innerTr;
                         mlir::Type const irty = od->getResult(0).getType();
-                        auto ishape = exprResultShape(irty);
+                        auto ishape = exprResultShape(irty, od);
 
                         ASTNode idecl;
                         idecl.kind = "declare_transient";

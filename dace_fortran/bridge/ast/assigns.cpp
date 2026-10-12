@@ -1647,6 +1647,15 @@ ASTNode buildLibCallNode(hlfir::AssignOp assign, mlir::Operation* srcOp, std::st
   auto dest = assign.getOperand(1);
   captureElementDesignateWrite(dest, n);
   if (!n.target_is_array) n.target_is_array = isArrayRef(dest.getType());
+  // A section destination is a slice, not an element: its designate indices hold (lb, ub, stride) triples, which the
+  // element write access would read as one dimension each.
+  if (auto dg = dest.getDefiningOp<hlfir::DesignateOp>()) {
+    bool const isSection = llvm::any_of(dg.getIsTriplet(), [](bool t) { return t; });
+    if (isSection && !dg.getComponentAttr()) {
+      n.target_subset = resolveDesignateSliceSubset(dest, callee, 0).second;
+      if (!n.accesses.empty() && n.accesses.back().is_write) n.accesses.pop_back();
+    }
+  }
 
   // Linalg ops use call_args for every operand; reduction-style ops
   // (count) treat the first operand as the array source and any

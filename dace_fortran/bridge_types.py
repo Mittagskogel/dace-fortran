@@ -178,6 +178,9 @@ class NodeRecord(Protocol):
     def call_arg_subsets(self) -> Sequence[str]: ...
 
     @property
+    def target_subset(self) -> str: ...
+
+    @property
     def aos_marshal_groups(self) -> Sequence[int]: ...
 
     @property

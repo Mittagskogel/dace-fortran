@@ -1010,7 +1010,17 @@ def mint_indirect_syms(builder: SDFGBuilder, ctx: Ctx, region: ControlFlowRegion
 
     :returns: the Fortran-style expression -> symbol map for :func:`emit_tasklet`.
     """
-    indirect_syms = collect_indirect(builder, [n])
+    return materialize_indirect_syms(builder, ctx, region, collect_indirect(builder, [n]))
+
+
+def materialize_indirect_syms(
+    builder: SDFGBuilder, ctx: Ctx, region: ControlFlowRegion, indirect_syms: dict[str, str]
+) -> dict[str, str]:
+    """Assign each symbol of ``indirect_syms`` (expression -> symbol, innermost first) on an interstate edge after
+    ``ctx.cur``, one state per symbol, and leave ``ctx.cur`` on the last one.
+
+    :returns: ``indirect_syms``.
+    """
     if not indirect_syms:
         return indirect_syms
     # See ``materialize_indirect_view_sources``: ``ctx.cur`` precedes the

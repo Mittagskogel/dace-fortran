@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import itertools
 import re
-from collections.abc import Callable, Container, Iterator, Sequence
+from collections.abc import Callable, Container, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from dace_fortran.builder.records import AccessLike, ComplexAliasSpec, NodeLike, SyntheticAccess, SyntheticVar
@@ -556,7 +556,12 @@ class IndirectExpr(NamedTuple):
 
 
 def indirect_exprs(builder: SDFGBuilder, a: NodeLike) -> list[IndirectExpr]:
-    """The *inline* indirect index expressions assign ``a`` reads, as
+    """The *inline* indirect index expressions assign ``a`` reads; see :func:`indirect_exprs_in`."""
+    return indirect_exprs_in(builder, [expr for ac in a.accesses for expr in ac.index_exprs or []])
+
+
+def indirect_exprs_in(builder: SDFGBuilder, exprs: Iterable[str]) -> list[IndirectExpr]:
+    """The inline indirect index expressions in ``exprs``, as
     ``(expression, source array)`` pairs, innermost-first and deduplicated.
 
     Recursive, so a nested form like ``idx1[idx2[idx3[i]]]`` yields one pair per
@@ -587,9 +592,8 @@ def indirect_exprs(builder: SDFGBuilder, a: NodeLike) -> list[IndirectExpr]:
                 seen.add(sub)
                 out.append(IndirectExpr(sub, arr))
 
-    for ac in a.accesses:
-        for expr in ac.index_exprs or []:
-            _visit(expr)
+    for expr in exprs:
+        _visit(expr)
 
     return out
 
@@ -608,11 +612,15 @@ def collect_indirect(builder: SDFGBuilder, assigns: list) -> dict:
     process-level monotonic ``gid`` disambiguates same-expression-different-
     call-site without us having to normalise the inner expression.
     """
+    return collect_indirect_in(builder, [expr for a in assigns for ac in a.accesses for expr in ac.index_exprs or []])
+
+
+def collect_indirect_in(builder: SDFGBuilder, exprs: Iterable[str]) -> dict:
+    """:func:`collect_indirect` over plain index expressions, such as the argument subsets of a library call."""
     out: dict[str, str] = {}
-    for a in assigns:
-        for sub, arr in indirect_exprs(builder, a):
-            if sub not in out:
-                out[sub] = f"{arr}_at{next(_INDIRECTION_GIDS)}"
+    for sub, arr in indirect_exprs_in(builder, exprs):
+        if sub not in out:
+            out[sub] = f"{arr}_at{next(_INDIRECTION_GIDS)}"
     return out
 
 

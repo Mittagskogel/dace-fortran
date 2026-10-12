@@ -543,6 +543,7 @@ NB_MODULE(hlfir_bridge, m) {
       .def_ro("callee", &ASTNode::callee)
       .def_ro("call_args", &ASTNode::call_args)
       .def_ro("call_arg_subsets", &ASTNode::call_arg_subsets)
+      .def_ro("target_subset", &ASTNode::target_subset)
       .def_ro("aos_marshal_groups", &ASTNode::aos_marshal_groups)
       .def_ro("reduce_src", &ASTNode::reduce_src)
       .def_ro("reduce_wcr", &ASTNode::reduce_wcr)
