@@ -1121,33 +1121,9 @@ static std::vector<double> extractGlobalInitData(fir::GlobalOp gop) {
   // Path 2: scalar ``fir.global`` (e.g. ``real :: bob = 1`` declared
   // at module scope without ``parameter``).  The initialiser lives
   // in the body as an ``arith.constant`` feeding a ``fir.has_value``
-  // terminator  --  extract the constant attribute, narrowing to a
-  // single-element ``out`` vector.
-  if (gop.getRegion().empty()) return out;
-  for (auto& op : gop.getRegion().front()) {
-    auto hv = mlir::dyn_cast<fir::HasValueOp>(op);
-    if (!hv) continue;
-    auto* def = hv.getResval().getDefiningOp();
-    // Peel a kind/representation ``fir.convert`` (a LOGICAL init is
-    // ``arith.constant false : i1`` -> ``fir.convert i1 to logical<4>``).
-    while (def)
-      if (auto cv = mlir::dyn_cast<fir::ConvertOp>(def))
-        def = cv.getValue().getDefiningOp();
-      else
-        break;
-    if (!def) return out;
-    auto cst = mlir::dyn_cast<mlir::arith::ConstantOp>(def);
-    if (!cst) return out;
-    auto attr = cst.getValue();
-    if (auto fa = mlir::dyn_cast<mlir::FloatAttr>(attr)) {
-      out.push_back(fa.getValueAsDouble());
-    } else if (auto ba = mlir::dyn_cast<mlir::BoolAttr>(attr)) {
-      out.push_back(ba.getValue() ? 1.0 : 0.0);
-    } else if (auto ia = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-      out.push_back(static_cast<double>(ia.getInt()));
-    }
-    return out;
-  }
+  // terminator.
+  if (auto val = globalInitValue(gop))
+    if (auto cst = scalarConstantValue(val)) out.push_back(*cst);
   return out;
 }
 
@@ -2662,6 +2638,17 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
                       // binding must pack the SoA buffer back into the host
                       // component on exit.
                       mv.is_written = globalIsWritten(globalSym, module);
+                      // A written scalar member of a scalar struct global is a
+                      // kernel-local transient: seed it with the component
+                      // default (``logical :: is_init = .false.``) as a written
+                      // module scalar is seeded.
+                      if (mv.is_written && mv.rank == 0 && seqExtents.empty()) {
+                        llvm::SmallVector<llvm::StringRef> parts;
+                        llvm::StringRef(mv.aos_member_path).split(parts, '%');
+                        std::vector<std::string> const componentPath(parts.begin(), parts.end());
+                        auto init = componentInitValue(module.lookupSymbol<fir::GlobalOp>(globalSym), componentPath);
+                        if (auto cst = init ? scalarConstantValue(init) : std::nullopt) mv.const_data = {*cst};
+                      }
                     }
                   }
                   vars.push_back(std::move(mv));

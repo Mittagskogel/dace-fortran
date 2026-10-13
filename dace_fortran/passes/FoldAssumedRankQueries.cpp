@@ -67,6 +67,7 @@
 // can't fold it further without runtime info.
 // ============================================================================
 
+#include "bridge/trace_utils.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/HLFIR/HLFIROps.h"
@@ -204,7 +205,20 @@ struct FoldAssumedRankQueriesPass
       if (auto ia = mlir::dyn_cast<mlir::IntegerAttr>(attr)) return ia.getInt();
       return std::nullopt;
     };
-    auto extentAt = [](mlir::Value v, int64_t dim) -> std::optional<int64_t> {
+    // An explicit-shape dummy redeclares its actual with its own ``fir.shape`` (sequence association):
+    // that shape, not the actual's type, defines the extents below it.  ``nullopt`` for a declare/embox
+    // that only shifts (no extents); otherwise the shape's extent, itself ``nullopt`` when not constant.
+    auto declaredExtent = [](mlir::Value shape, int64_t dim) -> std::optional<std::optional<int64_t>> {
+      if (!shape) return std::nullopt;
+      if (auto sh = shape.getDefiningOp<fir::ShapeOp>()) {
+        auto exts = sh.getExtents();
+        if (dim < 0 || dim >= static_cast<int64_t>(exts.size())) return std::optional<int64_t>();
+        return traceConstInt(exts[dim]);
+      }
+      if (mlir::isa_and_nonnull<fir::ShiftOp>(shape.getDefiningOp())) return std::nullopt;
+      return std::optional<int64_t>();
+    };
+    auto extentAt = [&](mlir::Value v, int64_t dim) -> std::optional<int64_t> {
       // Walk back through the convert / rebox / declare / embox chain
       // looking for the first ``fir.array`` whose ``dim``-th extent is
       // a concrete literal.  A ``<?x?>`` or rank-erased ``<*>`` ancestor
@@ -237,10 +251,12 @@ struct FoldAssumedRankQueriesPass
           continue;
         }
         if (auto decl = mlir::dyn_cast<hlfir::DeclareOp>(def)) {
+          if (auto declared = declaredExtent(decl.getShape(), dim)) return *declared;
           v = decl.getMemref();
           continue;
         }
         if (auto eb = mlir::dyn_cast<fir::EmboxOp>(def)) {
+          if (auto declared = declaredExtent(eb.getShape(), dim)) return *declared;
           v = eb.getMemref();
           continue;
         }

@@ -11,6 +11,9 @@ fir.address_of and has component-attribute hlfir.designate uses, synthesise one 
 VarInfo per unique component referenced, as a TRANSIENT (module globals are internal state).
 """
 
+import numpy as np
+from dace.sdfg.state import SDFGState
+
 from tests._util import build_sdfg
 
 
@@ -109,6 +112,42 @@ end module
 """
     sdfg = build_sdfg(src, tmp_path / "sdfg", name="driver", entry="m::driver").build()
     assert "g_c" in sdfg.arrays or "g_c" in sdfg.scalars or "g_c" in sdfg.symbols
+
+
+def test_module_level_struct_member_default_init_seeds_a_lazy_init_flag(tmp_path):
+    """``logical :: is_init = .false.`` on a member of a written module struct: the kernel-local copy
+    of the flag starts from the component default, so the first call runs the initialisation."""
+    src = """
+module m
+  type :: t
+    logical :: is_init = .false.
+    real(kind=8) :: x
+  end type
+  type(t) :: solver
+contains
+  subroutine init(a)
+    real(kind=8), intent(in) :: a
+    if (solver % is_init) return
+    solver % x = a
+    solver % is_init = .true.
+  end subroutine
+  subroutine driver(a, out)
+    real(kind=8), intent(in) :: a
+    real(kind=8), intent(out) :: out
+    if (.not. solver % is_init) call init(a)
+    out = solver % x
+  end subroutine
+end module
+"""
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="lazy_init_member", entry="m::driver").build()
+    (flag,) = [name for name in sdfg.arrays if name.endswith("is_init")]
+    entry = sdfg.start_block
+    assert isinstance(entry, SDFGState)
+    seeds = [n for n in entry.data_nodes() if n.data == flag and entry.in_degree(n) > 0]
+    assert len(seeds) == 1, f"{flag} is not seeded exactly once in the entry state"
+    out = np.zeros(1)
+    sdfg(a=3.0, out=out)
+    assert out[0] == 3.0
 
 
 def test_module_level_struct_accessed_via_inlined_callee_alias(tmp_path):
@@ -249,7 +288,6 @@ def test_local_named_like_module_record_member(tmp_path):
     """A local ``becp_r`` next to the module record member ``becp % r``, whose container is also named
     ``becp_r`` (QE ``add_vuspsi_gamma_acc``): the copy ``becp_r = becp % r`` must stay a copy between two
     containers. It used to merge them into one, and the copy into a self-cycle the SDFG rejects."""
-    import numpy as np
 
     src = """
 module becmod
@@ -284,7 +322,6 @@ end module kern
 def test_member_array_element_as_extent(tmp_path):
     """``ALLOCATE(w(smap % lb(1) : smap % ub(1)))`` with ``smap`` a module record (QE ``fft_type_init``'s sticks
     map): the extent reads elements of the members ``smap_lb`` / ``smap_ub``, not of the record ``smap``."""
-    import numpy as np
 
     src = """
 module smapmod
@@ -318,7 +355,6 @@ end module m
 def test_member_array_elements_as_loop_bounds_through_a_dummy(tmp_path):
     """``DO i = smap % lb(1), smap % ub(1)`` in a callee whose ``smap`` dummy is a module record (QE
     ``get_sticks``): the bounds read elements of the members, not of the record."""
-    import numpy as np
 
     src = """
 module smapmod
@@ -358,6 +394,18 @@ end module m
 
 
 if __name__ == "__main__":
-    import pytest
+    import tempfile
+    from pathlib import Path
 
-    raise SystemExit(pytest.main([__file__]))
+    with tempfile.TemporaryDirectory() as tmp:
+        test_module_level_struct_field_summed(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_matmul_transpose_inline(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_multiple_array_fields(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_scalar_field(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_member_default_init_seeds_a_lazy_init_flag(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_accessed_via_inlined_callee_alias(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_field_unaccessed_not_registered(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_level_struct_field_no_uninitialized_transient_warning(Path(tempfile.mkdtemp(dir=tmp)))
+        test_local_named_like_module_record_member(Path(tempfile.mkdtemp(dir=tmp)))
+        test_member_array_element_as_extent(Path(tempfile.mkdtemp(dir=tmp)))
+        test_member_array_elements_as_loop_bounds_through_a_dummy(Path(tempfile.mkdtemp(dir=tmp)))

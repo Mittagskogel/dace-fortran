@@ -1498,9 +1498,12 @@ class SDFGBuilder:
         from dace.data import Scalar
 
         scalar_inits, symbol_inits, array_inits = [], [], []
+        seeded: set[str] = set()
         for v in self.variables:
-            if not (v.is_written and v.const_data):
+            # Every declare of a global (one per function that names it) contributes a VarInfo
+            if not (v.is_written and v.const_data) or v.fortran_name in seeded:
                 continue
+            seeded.add(v.fortran_name)
             if v.rank == 0:
                 val = v.const_data[0]
                 is_int = v.dtype.startswith(("int", "uint")) or v.dtype == "bool"

@@ -178,7 +178,48 @@ end subroutine main
     np.testing.assert_array_equal(out, [n * m * p, n, m, p])
 
 
-if __name__ == "__main__":
-    import pytest
+def test_size_through_an_explicit_shape_dummy_is_its_declared_extent(tmp_path: Path):
+    """``a(n, k)`` reshapes its ``x(4, 8)`` actual by sequence association, so ``SIZE`` of the assumed-shape
+    dummy it is passed on to is ``k``, not the 8 of ``x`` (ICON's ``sync_patch_array`` on ``vort(nproma,
+    n_zlev, nblks_v)``)."""
+    src = """
+module m
+  implicit none
+contains
+  subroutine inner(arr, nb)
+    real(8), intent(inout) :: arr(:, :)
+    integer, intent(out) :: nb
+    nb = size(arr, 2)
+  end subroutine
+  subroutine mid(n, k, a, nb)
+    integer, intent(in) :: n, k
+    real(8), intent(inout) :: a(n, k)
+    integer, intent(out) :: nb
+    call inner(a, nb)
+  end subroutine
+  subroutine driver(k, x, nb)
+    integer, intent(in) :: k
+    real(8), intent(inout) :: x(4, 8)
+    integer, intent(out) :: nb
+    call mid(4, k, x, nb)
+  end subroutine
+end module
+"""
+    sdfg = build_sdfg(src, tmp_path, name="size_explicit_shape_dummy", entry="m::driver").build()
+    nb = np.zeros(1, dtype=np.int32)
+    sdfg(k=1, x=np.zeros((4, 8), order="F"), nb=nb)
+    assert nb[0] == 1
 
-    raise SystemExit(pytest.main([__file__]))
+
+if __name__ == "__main__":
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        test_size_assumed_shape_2d(Path(tempfile.mkdtemp(dir=tmp)))
+        test_size_explicit_shape(Path(tempfile.mkdtemp(dir=tmp)))
+        test_lbound_assumed_shape(Path(tempfile.mkdtemp(dir=tmp)))
+        test_lbound_explicit_offset(Path(tempfile.mkdtemp(dir=tmp)))
+        test_ubound_default_lb(Path(tempfile.mkdtemp(dir=tmp)))
+        test_ubound_explicit_offset(Path(tempfile.mkdtemp(dir=tmp)))
+        test_size_assumed_shape_3d(Path(tempfile.mkdtemp(dir=tmp)))
+        test_size_through_an_explicit_shape_dummy_is_its_declared_extent(Path(tempfile.mkdtemp(dir=tmp)))

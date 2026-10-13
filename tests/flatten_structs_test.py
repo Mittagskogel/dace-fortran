@@ -2,6 +2,7 @@
 flat per-member companions (uniform case) or into a single ELLPACK-style
 combined array (jagged case) before SDFG generation sees it."""
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -107,8 +108,6 @@ def test_jagged_struct_arg_packs_into_2d(tmp_path):
 # Asserted at the flatten-structs boundary: OWNED locals still split; descriptor
 # locals stay intact for the pointer-rewrite/view path.
 # ----------------------------------------------------------------------------
-
-_FLATTEN_ONLY = "hlfir-flatten-structs"
 
 
 def test_pointer_scalar_struct_local_not_flattened(tmp_path):
@@ -377,6 +376,45 @@ def _private_component_names(tmp_path):
     return _names(b)
 
 
+def test_struct_local_component_defaults_seed_the_companions(tmp_path):
+    """``type(t) :: q`` initialises from flang's constant ``DerivedInit`` global by a ``fir.copy``; once ``q``
+    flattens, each scalar companion with a constant default is assigned it (``is_init`` and the nested ``n``), a
+    component without a default stays undefined, and no copy into the dead struct storage is left."""
+    src = """
+module m
+  implicit none
+  type :: inner
+    integer :: n = 7
+  end type
+  type :: t
+    logical :: is_init = .false.
+    real(kind=8) :: x
+    type(inner) :: c
+  end type
+contains
+  subroutine k(out, n)
+    real(kind=8), intent(out) :: out
+    integer, intent(out) :: n
+    type(t) :: q
+    if (.not. q%is_init) q%x = 1d0
+    out = q%x
+    n = q%c%n
+  end subroutine
+end module
+"""
+    ir = run_passes_dump(src, tmp_path, name="k", pipeline=_FLATTEN_ONLY)
+    func = ir[ir.index("func.func @_QMmPk") :]
+    func = func[: func.index("\n  }\n")]
+    assert "fir.copy" not in func and "DerivedInit" not in func, f"default-init copy left behind:\n{func}"
+    assert '"_QMmFkEq_is_init"' in func and '"_QMmFkEq_c_n"' in func, f"q did not flatten:\n{func}"
+    assert re.search(r"arith.constant false", func) and re.search(r"arith.constant 7 : i32", func), func
+
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="struct_local_defaults", entry="m::k").build()
+    out, n = np.zeros(1), np.zeros(1, dtype=np.int32)
+    sdfg(out=out, n=n)
+    assert out[0] == 1.0 and n[0] == 7
+
+
 def test_private_component_never_designated_is_pruned(tmp_path):
     """Gate half 1: a PRIVATE component the kernel never designates must NOT get a
     flat companion. flang mangles it with an illegal '.' in the name; ICON's real
@@ -404,6 +442,19 @@ def test_public_sibling_of_private_component_still_flattens(tmp_path):
 
 
 if __name__ == "__main__":
-    import pytest
+    import tempfile
 
-    raise SystemExit(pytest.main([__file__]))
+    with tempfile.TemporaryDirectory() as tmp:
+        test_flatten_structs_splits_members(Path(tempfile.mkdtemp(dir=tmp)))
+        test_velocity_struct_arg_flattens_to_four_args(Path(tempfile.mkdtemp(dir=tmp)))
+        test_jagged_struct_arg_packs_into_2d(Path(tempfile.mkdtemp(dir=tmp)))
+        test_pointer_scalar_struct_local_not_flattened(Path(tempfile.mkdtemp(dir=tmp)))
+        test_allocatable_scalar_struct_local_not_flattened(Path(tempfile.mkdtemp(dir=tmp)))
+        test_inlined_multidim_aos_array_member_flattens_to_soa(Path(tempfile.mkdtemp(dir=tmp)))
+        test_inlined_pointer_aor_array_member_flattens_to_dynamic_soa(Path(tempfile.mkdtemp(dir=tmp)))
+        test_nested_aor_scalar_member_loop_bound_registers_as_symbol(Path(tempfile.mkdtemp(dir=tmp)))
+        test_nested_aor_array_member_registers_with_record_dim(Path(tempfile.mkdtemp(dir=tmp)))
+        test_struct_local_component_defaults_seed_the_companions(Path(tempfile.mkdtemp(dir=tmp)))
+        test_private_component_never_designated_is_pruned(Path(tempfile.mkdtemp(dir=tmp)))
+        test_private_component_designated_in_module_survives(Path(tempfile.mkdtemp(dir=tmp)))
+        test_public_sibling_of_private_component_still_flattens(Path(tempfile.mkdtemp(dir=tmp)))

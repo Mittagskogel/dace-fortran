@@ -104,7 +104,12 @@ constexpr unsigned kTraceDepth = 16;
 ///   * ``hlfir.designate``       -- field / element access; an
 ///     assignment to a sub-element of a global counts as a write to
 ///     the global as a whole;
-///   * ``fir.box_addr``          -- box-wrapped declares.
+///   * ``fir.box_addr``          -- box-wrapped declares;
+///   * ``fir.load``              -- the descriptor of an allocatable /
+///     pointer component: a store into its data writes the global, as
+///     ``globalIsWritten`` in the bridge counts it;
+///   * ``fir.embox`` / ``fir.rebox`` -- the global passed on as a
+///     ``CLASS`` / assumed-shape dummy of an inlined callee.
 ///
 /// Anything else (a fresh ``fir.alloca``, a function argument, ...)
 /// breaks the chain -- the write doesn't reach a global.
@@ -129,6 +134,18 @@ llvm::StringRef traceToGlobalSym(mlir::Value v) {
     }
     if (auto boxAddr = mlir::dyn_cast<fir::BoxAddrOp>(def)) {
       v = boxAddr.getVal();
+      continue;
+    }
+    if (auto load = mlir::dyn_cast<fir::LoadOp>(def)) {
+      v = load.getMemref();
+      continue;
+    }
+    if (auto embox = mlir::dyn_cast<fir::EmboxOp>(def)) {
+      v = embox.getMemref();
+      continue;
+    }
+    if (auto rebox = mlir::dyn_cast<fir::ReboxOp>(def)) {
+      v = rebox.getBox();
       continue;
     }
     return {};

@@ -590,6 +590,13 @@ struct FlatLeaf {
   mlir::Type leafTy;
 };
 
+/// A flat companion of a struct local: the component path it replaces and its
+/// declare's variable result.
+struct CompanionLeaf {
+  llvm::SmallVector<std::string, 4> path;
+  mlir::Value base;
+};
+
 /// Walk a ``RecordType`` recursively and append every flat leaf to
 /// ``out``.  Returns false if any leaf is non-flat (i.e. cannot be
 /// reached through a chain of pure-record + flat steps); on false the
@@ -5507,6 +5514,54 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
                        [](const auto& leaf) { return !mlir::isa<fir::BaseBoxType>(leaf.leafTy); });
   }
 
+  /// A struct local with component defaults (``type(t) :: q`` where ``t`` has
+  /// ``logical :: is_init = .false.``) is initialised by a ``fir.copy`` from
+  /// flang's constant ``<type>.DerivedInit`` global.  Once every other use of
+  /// the struct moved to the flat companions, that copy is all that keeps the
+  /// storage alive: replace it by one assign per scalar leaf whose default is a
+  /// constant.  A leaf without a default stays undefined, as in Fortran.
+  static void seedLeafDefaults(hlfir::DeclareOp decl, llvm::ArrayRef<CompanionLeaf> leaves) {
+    // The nested rewrite leaves the intermediate record designates (``q%c``) dead.
+    for (auto res : decl->getResults())
+      for (auto* u : llvm::make_early_inc_range(res.getUsers()))
+        if (mlir::isa<hlfir::DesignateOp>(u) && u->use_empty()) u->erase();
+    llvm::SmallVector<fir::CopyOp, 1> copies;
+    for (auto res : decl->getResults())
+      for (auto* u : res.getUsers()) {
+        auto cp = mlir::dyn_cast<fir::CopyOp>(u);
+        if (!cp || cp.getDestination() != res) return;
+        copies.push_back(cp);
+      }
+    auto module = decl->getParentOfType<mlir::ModuleOp>();
+    for (auto cp : copies) {
+      auto addr = cp.getSource().getDefiningOp<fir::AddrOfOp>();
+      auto init = addr ? module.lookupSymbol<fir::GlobalOp>(addr.getSymbol()) : fir::GlobalOp();
+      if (!init || !init.getConstant()) return;
+    }
+    for (auto cp : copies) {
+      auto addr = cp.getSource().getDefiningOp<fir::AddrOfOp>();
+      auto init = module.lookupSymbol<fir::GlobalOp>(addr.getSymbol());
+      mlir::OpBuilder b(cp);
+      for (auto& leaf : leaves) {
+        if (mlir::isa<fir::SequenceType>(fir::unwrapRefType(leaf.base.getType()))) continue;
+        auto val = hlfir_bridge::componentInitValue(init, leaf.path);
+        if (!val || !hlfir_bridge::scalarConstantValue(val)) continue;
+        b.create<hlfir::AssignOp>(cp.getLoc(), cloneConstantChain(b, val), leaf.base);
+      }
+      cp.erase();
+      if (addr->use_empty()) addr->erase();
+    }
+  }
+
+  /// Clone a ``fir.convert* (arith.constant)`` chain (a component default in a
+  /// global's body) to ``b``'s insertion point.
+  static mlir::Value cloneConstantChain(mlir::OpBuilder& b, mlir::Value v) {
+    auto* def = v.getDefiningOp();
+    if (auto cv = mlir::dyn_cast<fir::ConvertOp>(def))
+      return b.create<fir::ConvertOp>(cv.getLoc(), cv.getType(), cloneConstantChain(b, cv.getValue()));
+    return b.clone(*def)->getResult(0);
+  }
+
   static void splitLocal(hlfir::DeclareOp decl) {
     mlir::OpBuilder b(decl);
     auto* ctx = b.getContext();
@@ -5569,6 +5624,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
       if (!collectFlatLeaves(rec, prefix, initialDims, leaves)) return;
 
       llvm::StringMap<mlir::Value> leafBase;
+      llvm::SmallVector<CompanionLeaf, 8> companions;
       for (auto& leaf : leaves) {
         auto memTy = leaf.leafTy;
         auto newAlloca = b.create<fir::AllocaOp>(loc, memTy);
@@ -5614,6 +5670,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
         auto newDecl =
             b.create<hlfir::DeclareOp>(loc, mlir::TypeRange{declTy, declTy}, mlir::ValueRange(operands), attrs);
         leafBase[joinedKey] = newDecl.getResult(0);
+        companions.push_back({leaf.path, newDecl.getResult(0)});
       }
 
       // Walk every hlfir.designate chain rooted at ``decl`` (or
@@ -5623,6 +5680,7 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
       // (``replaceStructArgNested``)  --  both sides build the same
       // ``leafBase`` and need the same chain-rewrite logic.
       rewriteChainsRootedAt(decl, leafBase);
+      if (!outerIsArray) seedLeafDefaults(decl, companions);
 
       if (decl.getResult(0).use_empty() && decl.getResult(1).use_empty()) {
         auto* allocaOp = decl.getMemref().getDefiningOp();
@@ -5954,6 +6012,13 @@ struct FlattenStructsPass : public mlir::PassWrapper<FlattenStructsPass, mlir::O
     // try to erase its source.
     for (auto* w : llvm::reverse(wrapperOps))
       if (llvm::all_of(w->getResults(), [](mlir::Value v) { return v.use_empty(); })) w->erase();
+    if (!outerIsArray) {
+      llvm::SmallVector<CompanionLeaf, 8> companions;
+      for (auto& pair : rec.getTypeList())
+        if (auto it = memberBase.find(pair.first); it != memberBase.end())
+          companions.push_back({{pair.first}, it->second});
+      seedLeafDefaults(decl, companions);
+    }
 
     if (decl.getResult(0).use_empty() && decl.getResult(1).use_empty()) {
       auto* allocaOp = decl.getMemref().getDefiningOp();

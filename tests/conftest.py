@@ -45,19 +45,14 @@ except (ImportError, ValueError, OSError):
 # different (more accurate) result, not a wrong one.
 
 # Per-worker DaCe build folder: PYTEST_XDIST_WORKER is gw0/gw1/... per worker, absent on
-# serial runs (keeps the default .dacecache there).
+# serial runs (keeps the configured folder there). Workers sharing one folder race each other's
+# links (`collect2: ld returned 1`, "Could not load library"), so each suffixes the configured one
+# (``DACE_default_build_folder`` or the ``.dacecache`` default).
 _worker = os.environ.get("PYTEST_XDIST_WORKER")
 if _worker:
     from dace.config import Config
 
-    # A DACE_* env var OUTRANKS Config.set, so a caller isolating the build tree with
-    # DACE_default_build_folder=<dir> silently collapses every worker onto one folder and the
-    # workers race each other's links (`collect2: ld returned 1`, "Could not load library"). Suffix
-    # the env var itself so both the caller's isolation and the per-worker split survive.
-    _base = os.environ.get("DACE_default_build_folder")
-    if _base:
-        os.environ["DACE_DEFAULT_BUILD_FOLDER"] = f"{_base}_{_worker}"
-    Config.set("default_build_folder", value=f".dacecache_{_worker}")
+    Config.set("default_build_folder", value=f"{Config.get('default_build_folder')}_{_worker}")
 else:
     # Master-only: force the hlfir_bridge .so build/staleness-check here, single-threaded,
     # before xdist spawns workers -- otherwise concurrent workers race ensure_fresh()'s

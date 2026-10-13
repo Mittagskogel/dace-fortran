@@ -5,9 +5,11 @@ non-PARAMETER ``_QM<mod>E<var>`` global so ``sccp`` can't fold loads to the BSS 
 PARAMETER and function-scope globals stay untouched (caller can't bind the latter).
 """
 
+import re
+
 import numpy as np
 
-from tests._util import build_sdfg
+from tests._util import build_sdfg, run_passes_dump
 
 
 def test_module_global_read_only_surfaces_as_kwarg(tmp_path):
@@ -242,7 +244,44 @@ end module m
     assert counter[0] == 13
 
 
-if __name__ == "__main__":
-    import pytest
+def test_struct_global_written_through_an_allocatable_component_keeps_its_defaults(tmp_path):
+    """A store into the data of an allocatable component (``solver % x(i) = ...``) writes the struct
+    global: it stays MUTABLE and keeps its initialiser, which seeds the scalar component the kernel
+    never writes (``is_init = .false.``)."""
+    src = """
+module m
+  implicit none
+  type :: t
+    real(kind=8), allocatable :: x(:)
+    logical :: is_init = .false.
+  end type
+  type(t) :: solver
+contains
+  subroutine k(out)
+    real(kind=8), intent(out) :: out
+    solver % x(1) = 2d0
+    out = 1d0
+    if (solver % is_init) out = -1d0
+  end subroutine
+end module
+"""
+    ir = run_passes_dump(src, tmp_path, name="k", pipeline="hlfir-preserve-mutable-globals")
+    (decl,) = re.findall(r"fir\.global[^\n]*@_QMmEsolver :[^\n]*", ir)
+    assert " common " not in decl and decl.endswith("{"), f"written struct global lost its initialiser: {decl[:200]}"
 
-    raise SystemExit(pytest.main([__file__]))
+
+if __name__ == "__main__":
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        test_module_global_read_only_surfaces_as_kwarg(Path(tempfile.mkdtemp(dir=tmp)))
+        test_function_scope_global_stays_baked(Path(tempfile.mkdtemp(dir=tmp)))
+        test_parameter_module_constant_stays_baked(Path(tempfile.mkdtemp(dir=tmp)))
+        test_cross_module_use_propagates_global(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_array_global_surfaces_as_kwarg(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_global_scalar_writeback(Path(tempfile.mkdtemp(dir=tmp)))
+        test_cross_module_global_writeback(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_array_global_writeback(Path(tempfile.mkdtemp(dir=tmp)))
+        test_module_global_written_in_body_is_mutable(Path(tempfile.mkdtemp(dir=tmp)))
+        test_struct_global_written_through_an_allocatable_component_keeps_its_defaults(Path(tempfile.mkdtemp(dir=tmp)))

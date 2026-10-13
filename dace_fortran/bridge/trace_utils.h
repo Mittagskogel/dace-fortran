@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/HLFIR/HLFIROps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -120,6 +121,18 @@ void clearAllocAliases();
 /// Trace an SSA value to a compile-time integer constant through any number of fir.convert wrappings; nullopt if not
 /// constant-foldable.
 std::optional<int64_t> traceConstInt(mlir::Value v);
+
+/// The value a ``fir.global`` body hands to its ``fir.has_value`` terminator; null without an initialiser body.
+mlir::Value globalInitValue(fir::GlobalOp gop);
+
+/// The default of component ``path`` (``inner%flag`` as {"inner", "flag"}) in a derived-type global's initialiser,
+/// which flang builds as a ``fir.insert_value`` chain over ``fir.undefined`` (nested types as an inner chain); null
+/// when the chain does not name the component.  A component without a default inserts ``fir.zero_bits``.
+mlir::Value componentInitValue(fir::GlobalOp gop, llvm::ArrayRef<std::string> path);
+
+/// A compile-time scalar constant (float, logical or integer) widened to ``double``, through any ``fir.convert``s (a
+/// LOGICAL init is ``arith.constant false : i1`` -> ``fir.convert`` to ``logical<4>``); nullopt otherwise.
+std::optional<double> scalarConstantValue(mlir::Value v);
 
 /// Recognise Flang's ASSOCIATED(ptr)/ALLOCATED(arr) lowering (arith.cmpi ne, fir.convert*(fir.box_addr(fir.load?
 /// %boxref)), 0) and return %boxref, to which callers append "_allocated"; null if cmp isn't that shape. Shared by
