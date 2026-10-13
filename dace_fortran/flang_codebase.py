@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -136,16 +137,25 @@ def vendor_netcdf_fortran(cache_dir: Path, version: str = _NETCDF_FORTRAN_DEFAUL
         return fortran_dir
     cache_dir.mkdir(parents=True, exist_ok=True)
     url = _NETCDF_FORTRAN_URL.format(version=version)
-    tarball = cache_dir / f"netcdf-fortran-{version}.tar.gz"
-    if not tarball.is_file():
+    # Concurrent callers (xdist workers) each fetch and unpack into a staging directory of their own and publish it
+    # with one atomic rename, so none of them reads a half-written tarball or a half-extracted tree.
+    with tempfile.TemporaryDirectory(dir=cache_dir) as staging:
+        tarball = Path(staging) / "netcdf-fortran.tar.gz"
         with urllib.request.urlopen(url) as r, tarball.open("wb") as f:
             shutil.copyfileobj(r, f)
-    with tarfile.open(tarball) as t:
-        # filter="data" is 3.14's default and the only safe one for a downloaded tarball:
-        # it rejects absolute/parent paths, links out of the tree, and device nodes.
-        t.extractall(cache_dir, filter="data")
-    if not fortran_dir.is_dir():
-        raise RuntimeError(f"netcdf-fortran tarball did not extract a fortran/ subdirectory under {target}")
+        with tarfile.open(tarball) as t:
+            # filter="data" is 3.14's default and the only safe one for a downloaded tarball:
+            # it rejects absolute/parent paths, links out of the tree, and device nodes.
+            t.extractall(staging, filter="data")
+        staged = Path(staging) / target.name
+        if not (staged / "fortran").is_dir():
+            raise RuntimeError(f"netcdf-fortran tarball did not extract a fortran/ subdirectory under {target.name}")
+        try:
+            staged.rename(target)
+        except OSError:
+            # Another caller published first; its tree is the same release.
+            if not fortran_dir.is_dir():
+                raise
     return fortran_dir
 
 

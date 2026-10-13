@@ -167,6 +167,43 @@ def test_prepare_translation_unit_flang_clean_on_icon_velocity(tmp_path: Path, i
     assert hlfir_path.stat().st_size > 100 * 1024 * 1024
 
 
+def test_concurrent_netcdf_vendoring_publishes_one_complete_tree(tmp_path: Path, monkeypatch):
+    """xdist workers vendor netcdf-fortran into one cache at once: none may read another's half-written tarball."""
+    import tarfile
+    import threading
+
+    import dace_fortran.flang_codebase as fc
+
+    version = "0.0.0"
+    src = tmp_path / "src" / f"netcdf-fortran-{version}" / "fortran"
+    src.mkdir(parents=True)
+    (src / "netcdf4.F90").write_text("module netcdf\nend module netcdf\n")
+    tarball = tmp_path / "netcdf-fortran.tar.gz"
+    with tarfile.open(tarball, "w:gz") as t:
+        t.add(src.parent, arcname=src.parent.name)
+    monkeypatch.setattr(fc, "_NETCDF_FORTRAN_URL", tarball.as_uri().replace(version, "{version}"))
+
+    cache = tmp_path / "cache"
+    results: list[Path] = []
+    errors: list[BaseException] = []
+
+    def vendor() -> None:
+        try:
+            results.append(fc.vendor_netcdf_fortran(cache, version))
+        except BaseException as e:
+            errors.append(e)
+
+    workers = [threading.Thread(target=vendor) for _ in range(8)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert not errors, errors
+    assert {r.resolve() for r in results} == {(cache / f"netcdf-fortran-{version}" / "fortran").resolve()}
+    assert (results[0] / "netcdf4.F90").is_file()
+    assert sorted(p.name for p in cache.iterdir()) == [f"netcdf-fortran-{version}"]
+
+
 def test_lazy_import_surface():
     """The headline helpers are re-exported from the package root for
     the documented ``import dace_fortran; dace_fortran.foo`` use."""
@@ -179,4 +216,18 @@ def test_lazy_import_surface():
 
 
 if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__]))
+    from tests.icon.full._icon_build import default_build_dir, ensure_icon_built
+
+    icon = ensure_icon_built(_ICON_SRC, default_build_dir())
+    with tempfile.TemporaryDirectory() as tmp, pytest.MonkeyPatch.context() as mp:
+        test_library_stubs_registry_keys()
+        test_flang_bug_patches_registry_keys()
+        test_mpi_stub_source_and_flags()
+        test_patch_mpi_sizeof_substitutes_static_byte_count()
+        test_patch_mpi_sizeof_noop_on_unrelated_source()
+        test_prepare_translation_unit_rejects_unknown_stub()
+        test_prepare_translation_unit_rejects_unknown_patch()
+        test_extract_make_compile_args_for_icon_velocity(icon)
+        test_prepare_translation_unit_flang_clean_on_icon_velocity(Path(tempfile.mkdtemp(dir=tmp)), icon)
+        test_concurrent_netcdf_vendoring_publishes_one_complete_tree(Path(tempfile.mkdtemp(dir=tmp)), mp)
+        test_lazy_import_surface()
