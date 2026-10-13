@@ -39,15 +39,15 @@ from dace.transformation.interstate.state_fusion_with_happens_before import Stat
 from dace.transformation.pass_pipeline import Pipeline
 from dace.transformation.passes.demote_non_structural_symbols import DemoteNonStructuralSymbols
 from dace.transformation.passes.full_map_fusion import FullMapFusion
-from dace.transformation.passes.length_one_array_scalar_conversion import (
-    STAGING_STATE_PREFIXES,
-    ConvertLengthOneArraysToScalars,
-)
+from dace.transformation.passes.length_one_array_scalar_conversion import ConvertLengthOneArraysToScalars
 from dace.transformation.passes.parallelization_prep import ShortLoopUnroll
 from dace.transformation.passes.scalar_fission import ScalarFission
 from dace.transformation.passes.unique_loop_iterators import UniqueLoopIterators
 
 from dace_fortran.omp_threads import BindOmpThreadCount
+
+#: Labels of the states ``ConvertLengthOneArraysToScalars`` adds to copy staged signature arrays in and out.
+STAGING_STATE_PREFIXES = ("stage_copyin", "stage_copyout")
 
 Const = Union[float, int, str]
 
