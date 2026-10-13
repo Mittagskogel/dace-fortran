@@ -220,10 +220,8 @@ def _build_artifacts(tmp_path: Path) -> dict:
 
 @pytest.mark.xfail(
     strict=True,
-    reason="The halo sync-buffer transpose is FIXED (bridge lowers <section> = <whole allocatable> element-wise, "
-    "commit 24b39da) and FoldCopyInOut is exonerated -- the isolated pack/unpack repro is now bit-exact. But the "
-    "full multi-rank solve_free_sfc still diverges on prog_h: a residual defect elsewhere in the dycore path, not yet "
-    "isolated. Verify against the runtime divergence count (rerun without this marker) before removing it.",
+    reason="With every block dimension spanning the arrays' n blocks the halo sync exchanges real data, and the DUT "
+    "diverges from the reference on press_hyd and vort (a residual defect on the multi-block path, not yet isolated).",
 )
 @pytest.mark.xdist_group("ocean_fparser")
 def test_solve_free_sfc_rank_pairs_bit_exact(tmp_path: Path):
@@ -251,6 +249,8 @@ def test_solve_free_sfc_rank_pairs_bit_exact(tmp_path: Path):
         array_overrides={
             "patch_3d_p_patch_1d_dolic_c": 2,
             "patch_3d_p_patch_1d_dolic_e": 2,
+            # Every block dimension spans the n blocks the arrays have, so each halo sync exchanges block 2.
+            **{f"patch_3d_p_patch_2d_{blocks}": _N for blocks in ("nblks_e", "nblks_v", "alloc_cell_blocks")},
         },
     )
 
@@ -282,4 +282,7 @@ def test_solve_free_sfc_rank_pairs_bit_exact(tmp_path: Path):
 
 
 if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__]))
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        test_solve_free_sfc_rank_pairs_bit_exact(Path(tmp))

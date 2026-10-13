@@ -211,6 +211,44 @@ end module
     assert nb[0] == 1
 
 
+def test_size_through_an_explicit_shape_dummy_of_a_pointer_actual(tmp_path: Path):
+    """A POINTER actual reaches ``a(n, k)`` through a copy-in the bridge folds away; ``SIZE`` of the assumed-shape
+    dummy ``a`` is passed on to stays ``k`` (the folded copy's declared extent), not the pointer's 8."""
+    src = """
+module m
+  implicit none
+  type t
+    real(8), pointer :: v(:, :)
+  end type
+contains
+  subroutine inner(arr, nb)
+    real(8), intent(inout) :: arr(:, :)
+    integer, intent(out) :: nb
+    nb = size(arr, 2)
+    arr(1, 1) = 5d0
+  end subroutine
+  subroutine mid(n, k, a, nb)
+    integer, intent(in) :: n, k
+    real(8), intent(inout) :: a(n, k)
+    integer, intent(out) :: nb
+    call inner(a, nb)
+  end subroutine
+  subroutine driver(n, k, d, nb)
+    integer, intent(in) :: n, k
+    type(t), intent(inout) :: d
+    integer, intent(out) :: nb
+    call mid(n, k, d % v, nb)
+  end subroutine
+end module
+"""
+    sdfg = build_sdfg(src, tmp_path, name="size_pointer_actual_explicit_dummy", entry="m::driver").build()
+    nb = np.zeros(1, dtype=np.int32)
+    v = np.zeros((4, 8), order="F")
+    sdfg(d_v=v, nb=nb, d_v_d0=4, d_v_d1=8, k=1, n=4, offset_d_v_d0=1, offset_d_v_d1=1)
+    assert nb[0] == 1
+    assert v[0, 0] == 5.0
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -223,3 +261,4 @@ if __name__ == "__main__":
         test_ubound_explicit_offset(Path(tempfile.mkdtemp(dir=tmp)))
         test_size_assumed_shape_3d(Path(tempfile.mkdtemp(dir=tmp)))
         test_size_through_an_explicit_shape_dummy_is_its_declared_extent(Path(tempfile.mkdtemp(dir=tmp)))
+        test_size_through_an_explicit_shape_dummy_of_a_pointer_actual(Path(tempfile.mkdtemp(dir=tmp)))

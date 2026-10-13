@@ -74,6 +74,7 @@
 //       cannot carry strides to the callee anyway.
 // ============================================================================
 
+#include "bridge/trace_utils.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/HLFIR/HLFIROps.h"
 #include "llvm/ADT/SmallVector.h"
@@ -624,15 +625,26 @@ struct FoldCopyInOutPass : public mlir::PassWrapper<FoldCopyInOutPass, mlir::Ope
       noteBail(cin, "member reparent: " + why);
       return;
     }
-    // A box_dims on the alias reads the COPY's shape.  Extent is identical to the
-    // source's, so that one reparents; the lower bound and the stride are not (a
-    // 1-based contiguous temp vs a member box that may be neither), so refuse if
-    // either is live rather than silently changing what SIZE/LBOUND return.
-    for (auto bd : dims)
+    // A box_dims on the alias reads the COPY's shape.  Its lower bound and stride
+    // are not the source's (a 1-based contiguous temp vs a member box that may be
+    // neither), so refuse if either is live rather than silently changing what
+    // LBOUND returns.  Its extent is the alias's: an explicit-shape dummy
+    // (``a(n, k)``) declares its own through ``fir.shape`` (sequence association),
+    // otherwise it is the source's.
+    auto declaredShape = aliasDecl.getShape() ? aliasDecl.getShape().getDefiningOp<fir::ShapeOp>() : fir::ShapeOp();
+    for (auto bd : dims) {
       if (!bd.getResult(0).use_empty() || !bd.getResult(2).use_empty()) {
         noteBail(cin, "member reparent: fir.box_dims reads the alias lower bound or stride");
         return;
       }
+      if (declaredShape) {
+        auto dim = traceConstInt(bd.getDim());
+        if (!dim || *dim < 0 || *dim >= static_cast<int64_t>(declaredShape.getExtents().size())) {
+          noteBail(cin, "member reparent: fir.box_dims dimension of the explicit-shape alias is not constant");
+          return;
+        }
+      }
+    }
 
     // Reparent each ``%alias (idx...)`` onto the member box verbatim.
     for (auto useDg : uses) {
@@ -653,8 +665,15 @@ struct FoldCopyInOutPass : public mlir::PassWrapper<FoldCopyInOutPass, mlir::Ope
       useDg.erase();
     }
 
-    // Extent queries move to the same box the designates now read.
-    for (auto bd : dims) bd.getValMutable().assign(memberBox);
+    // Extent queries read the alias's declared extent, or move to the same box the designates now read.
+    for (auto bd : dims) {
+      if (declaredShape) {
+        bd.getExtent().replaceAllUsesWith(declaredShape.getExtents()[*traceConstInt(bd.getDim())]);
+        bd.erase();
+      } else {
+        bd.getValMutable().assign(memberBox);
+      }
+    }
 
     // Erase the now-dead chain: re-declare ladder, convert, box_addr,
     // copy_out(s), copy_in, temp box.  Users first, defs last.
