@@ -27,7 +27,7 @@ keywords = ["fortran", "flang", "hlfir", "mlir", "dace", "frontend", "dataflow"]
 
 dependencies = [
     # A commit of the FaCe branch, which carries the DaCe-core pieces the frontend needs; a sha keeps CI reproducible.
-    "dace @ git+https://github.com/spcl/dace.git@66293ad6f5cf626ff4c821572b8eb24fbff93bf1",
+    "dace @ git+https://github.com/spcl/dace.git@237506f344a65945d92e735e70bf3c6e26e1db1b",
     # fparser AST single-TU inliner (dace_fortran.fparser_inliner).  >0.2
     # carries the Fortran2003-before-Fortran2008 import ordering needed
     # under Python 3.14 (cf. d-face commit 74110d690).

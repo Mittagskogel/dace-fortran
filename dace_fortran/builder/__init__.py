@@ -602,12 +602,12 @@ def reject_unlowered_expressions(sdfg: SDFG) -> None:
                 subsets = (str(edge.data.subset), str(edge.data.other_subset))
                 if any("?" in s for s in subsets):
                     leaks.append(f"{sd.name}/{state.label}: memlet {edge.data.data} [{', '.join(subsets)}]")
-        for edge in sd.all_interstate_edges():
-            for target, expr in edge.data.assignments.items():
+        for isedge in sd.all_interstate_edges():
+            for target, expr in isedge.data.assignments.items():
                 if "?" in str(expr):
                     leaks.append(f"{sd.name}: interstate assignment {target} = {expr}")
-            if "?" in str(edge.data.condition.as_string):
-                leaks.append(f"{sd.name}: interstate condition {edge.data.condition.as_string}")
+            if "?" in str(isedge.data.condition.as_string):
+                leaks.append(f"{sd.name}: interstate condition {isedge.data.condition.as_string}")
     if leaks:
         raise RuntimeError(
             "bridge emitted unlowered '?' placeholders into the SDFG ("

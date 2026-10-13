@@ -25,7 +25,7 @@ from tests.cloudsc.full._harness import f2py_reference, run_against_reference
 from tests.cloudsc.full._registries import program_outputs
 
 SOURCE = Path(__file__).resolve().parents[1] / "tests" / "cloudsc" / "full" / "cloudsc.F90"
-MAPS = 290
+MAPS = 291
 LOOPS = 8
 
 
