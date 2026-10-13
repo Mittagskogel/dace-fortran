@@ -53,15 +53,39 @@ llvm::StringRef traceToGlobalSym(mlir::Value v) {
   return {};
 }
 
-llvm::StringRef traceWriteToGlobalSym(mlir::Value v) {
+/// The global a store target writes, and the component of it the store reaches
+/// (``g%member...``), or an empty member for a write to the whole record.
+struct GlobalWrite {
+  llvm::StringRef symbol;
+  llvm::StringRef member;
+};
+
+GlobalWrite traceWriteToGlobal(mlir::Value v) {
   for (unsigned d = 0; d < kTraceDepth && v; ++d) {
     mlir::Operation* def = v.getDefiningOp();
     if (!def) return {};
     if (auto desig = mlir::dyn_cast<hlfir::DesignateOp>(def)) {
+      if (desig.getComponent().has_value()) {
+        llvm::StringRef const sym = traceToGlobalSym(desig.getMemref());
+        if (!sym.empty()) return {sym, desig.getComponent()->getValue()};
+      }
       v = desig.getMemref();
       continue;
     }
-    return traceToGlobalSym(v);
+    // An inlined callee's dummy re-declares the member it was passed: the write still reaches that member.
+    if (auto decl = mlir::dyn_cast<hlfir::DeclareOp>(def)) {
+      v = decl.getMemref();
+      continue;
+    }
+    if (auto conv = mlir::dyn_cast<fir::ConvertOp>(def)) {
+      v = conv.getValue();
+      continue;
+    }
+    if (auto boxAddr = mlir::dyn_cast<fir::BoxAddrOp>(def)) {
+      v = boxAddr.getVal();
+      continue;
+    }
+    return {traceToGlobalSym(v), {}};
   }
   return {};
 }
@@ -82,6 +106,19 @@ bool splitModuleScopeSymbol(llvm::StringRef sym, llvm::StringRef& mod, llvm::Str
   for (char const c : entity)
     if (!std::islower(static_cast<unsigned char>(c)) && !std::isdigit(static_cast<unsigned char>(c)) && c != '_')
       return false;
+  return true;
+}
+
+/// ``v`` is only loaded: directly, or through the dummy an inlined callee re-declares it as.
+bool onlyLoaded(mlir::Value v, unsigned depth = 0) {
+  if (depth > kTraceDepth) return false;
+  for (mlir::Operation* user : v.getUsers()) {
+    if (mlir::isa<fir::LoadOp>(user)) continue;
+    auto decl = mlir::dyn_cast<hlfir::DeclareOp>(user);
+    if (!decl || decl.getMemref() != v) return false;
+    for (mlir::Value const res : decl->getResults())
+      if (!onlyLoaded(res, depth + 1)) return false;
+  }
   return true;
 }
 
@@ -118,7 +155,9 @@ struct FlattenGlobalScalarReadsPass
   void runOnOperation() override {
     auto module = getOperation();
 
-    llvm::StringSet<> writtenGlobals;
+    // A write to one member keeps only that member out; a write to the whole record keeps all of them out.
+    llvm::StringSet<> wholeWritten;
+    llvm::StringSet<> membersWritten;
     module.walk([&](mlir::Operation* op) {
       mlir::Value target;
       if (auto store = mlir::dyn_cast<fir::StoreOp>(op))
@@ -127,8 +166,12 @@ struct FlattenGlobalScalarReadsPass
         target = assign.getLhs();
       else
         return;
-      llvm::StringRef const sym = traceWriteToGlobalSym(target);
-      if (!sym.empty()) writtenGlobals.insert(sym);
+      auto const w = traceWriteToGlobal(target);
+      if (w.symbol.empty()) return;
+      if (w.member.empty())
+        wholeWritten.insert(w.symbol);
+      else
+        membersWritten.insert((llvm::Twine(w.symbol) + "%" + w.member).str());
     });
 
     llvm::StringSet<> takenNames;
@@ -154,9 +197,10 @@ struct FlattenGlobalScalarReadsPass
       if (!refTy) return;
       std::string const dtype = dtypeName(refTy.getEleTy());
 
-      bool ok = !dtype.empty() && !writtenGlobals.contains(sym) && !takenNames.contains(newSym);
-      for (mlir::Operation const* user : d.getResult().getUsers())
-        if (!mlir::isa<fir::LoadOp>(user)) ok = false;
+      bool const written =
+          wholeWritten.contains(sym) || membersWritten.contains((llvm::Twine(sym) + "%" + member).str());
+      bool ok = !dtype.empty() && !written && !takenNames.contains(newSym);
+      if (!onlyLoaded(d.getResult())) ok = false;
       if (!ok) {
         rejected.insert(newSym);
         return;

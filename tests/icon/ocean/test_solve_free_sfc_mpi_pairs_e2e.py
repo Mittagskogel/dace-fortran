@@ -21,7 +21,6 @@ The exchange pairs the ranks {0, 1}, {2, 3}, ..., so this runs at any even rank 
 ``@pytest.mark.long``: builds the full dycore to an SDFG (minutes).
 """
 
-import ctypes
 import re
 from pathlib import Path
 
@@ -195,7 +194,7 @@ def _build_artifacts(tmp_path: Path) -> dict:
         out=tmp_path,
         module_seeds={
             "nproma": 8,
-            "n_zlev": 7,
+            "n_zlev": _N,
             "nold": 1,
             "nnew": 1,
             "n_dom": 1,
@@ -218,11 +217,6 @@ def _build_artifacts(tmp_path: Path) -> dict:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="With every block dimension spanning the arrays' n blocks the halo sync exchanges real data, and the DUT "
-    "diverges from the reference on press_hyd and vort (a residual defect on the multi-block path, not yet isolated).",
-)
 @pytest.mark.xdist_group("ocean_fparser")
 def test_solve_free_sfc_rank_pairs_bit_exact(tmp_path: Path):
     """solve_free_sfc on rank pairs with a real MPI halo: SDFG vs stock gfortran, bit-exact per rank."""
@@ -268,17 +262,19 @@ def test_solve_free_sfc_rank_pairs_bit_exact(tmp_path: Path):
             n_changed += 1
     assert n_changed > 0, f"rank {rank}: no output changed -- the dycore ran as a no-op"
 
-    # The differential above passes just as well if the halo never fired, so prove the
-    # exchange moved real data: re-run the DUT on COMM_SELF, where the sync takes its
-    # size<=1 no-op path.  A changed result is only possible if the pair swap ran.
-    self_bufs = {k: v.copy() for k, v in inputs.items()}
-    ctypes.CDLL(art["dut_so"], mode=ctypes.RTLD_GLOBAL)
-    _invoke(
-        art["dut_so"], call_plan, self_bufs, f"{dace_name}_c", sdfg_so=art["sdfg_so"], module_seeds=art["seed_specs"]
-    )
-    assert any(not np.array_equal(dut[k], self_bufs[k]) for k in ptr_args), (
-        f"rank {rank}: the multi-rank run is identical to the single-rank one -- the halo exchange moved no neighbour data"
-    )
+    # The differential above passes just as well if the halo never fired, so prove the exchange moved real data:
+    # some output's halo block (Fortran block 2) holds the partner's owned block (block 1) after the call.  The
+    # buffers are C-ordered views of the Fortran arrays, so the leading axis is the block.
+    partner = rank + 1 - 2 * (rank % 2)
+    moved = []
+    for k in sorted(ptr_args):
+        out = np.asarray(dut[k])
+        if out.ndim < 2 or out.shape[0] < 2:
+            continue
+        theirs = world.sendrecv(out[0].copy(), dest=partner, source=partner)
+        if np.array_equal(out[1], theirs) and not np.array_equal(out[1], np.asarray(inputs[k])[1]):
+            moved.append(k)
+    assert moved, f"rank {rank}: no output's halo block holds the partner's owned block -- the exchange moved nothing"
 
 
 if __name__ == "__main__":

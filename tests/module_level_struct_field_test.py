@@ -11,10 +11,12 @@ fir.address_of and has component-attribute hlfir.designate uses, synthesise one 
 VarInfo per unique component referenced, as a TRANSIENT (module globals are internal state).
 """
 
+import re
+
 import numpy as np
 from dace.sdfg.state import SDFGState
 
-from tests._util import build_sdfg
+from tests._util import build_sdfg, run_passes_dump
 
 
 def test_module_level_struct_field_summed(tmp_path):
@@ -148,6 +150,41 @@ end module
     out = np.zeros(1)
     sdfg(a=3.0, out=out)
     assert out[0] == 3.0
+
+
+def test_read_only_member_of_a_written_module_struct_is_a_kernel_input(tmp_path):
+    """Writing ``g % w`` keeps only ``w`` kernel-local: the read-only ``g % n``, read through the dummy of an inlined
+    callee, still lifts to a synthetic global the binding reads off the host (QE ``dffts % ngw``, which the kernel
+    never writes while it writes other members)."""
+    src = """
+module m
+  implicit none
+  type :: t
+    integer :: n
+    real(kind=8) :: w
+  end type
+  type(t) :: g
+contains
+  subroutine bump(n, x)
+    integer, intent(in) :: n
+    real(kind=8), intent(inout) :: x(4)
+    integer :: i
+    do i = 1, 4
+      if (i <= n) x(i) = x(i) + 1d0
+    end do
+  end subroutine
+  subroutine k(x)
+    real(kind=8), intent(inout) :: x(4)
+    call bump(g % n, x)
+    g % w = 2d0
+  end subroutine
+end module
+"""
+    ir = run_passes_dump(src, tmp_path / "ir", name="k", pipeline="hlfir-inline-all,hlfir-flatten-global-scalar-reads")
+    assert re.search(r"fir\.global @_QMmEg_n\b", ir), "read-only member g%n was not lifted"
+    assert not re.search(r"fir\.global @_QMmEg_w\b", ir), "written member g%w must stay on the struct"
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="written_struct_read_member", entry="m::k").build()
+    assert "g_n" in sdfg.arglist(), f"g%n is not a kernel input: {sorted(sdfg.arglist())}"
 
 
 def test_module_level_struct_accessed_via_inlined_callee_alias(tmp_path):
@@ -403,6 +440,7 @@ if __name__ == "__main__":
         test_module_level_struct_multiple_array_fields(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_scalar_field(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_member_default_init_seeds_a_lazy_init_flag(Path(tempfile.mkdtemp(dir=tmp)))
+        test_read_only_member_of_a_written_module_struct_is_a_kernel_input(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_accessed_via_inlined_callee_alias(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_field_unaccessed_not_registered(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_field_no_uninitialized_transient_warning(Path(tempfile.mkdtemp(dir=tmp)))
