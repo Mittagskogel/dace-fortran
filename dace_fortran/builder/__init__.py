@@ -635,21 +635,27 @@ def reject_loop_iterator_assignments(sdfg: SDFG) -> None:
         raise RuntimeError("an interstate edge assigns the iterator of its own LoopRegion:\n  " + "\n  ".join(sites))
 
 
-def _rename_in_expr(expr: str, name: str, new_name: str) -> str:
-    """``expr`` with every reference to the name ``name`` replaced by ``new_name`` (an expression)."""
-    replacer = astutils.ASTFindReplace({name: new_name})
-    tree = replacer.visit(ast.parse(expr))
-    return ast.unparse(tree) if replacer.replace_count else expr
+def _resolve_alias(target: str, aliases: dict[str, str]) -> str:
+    """``target`` with every alias it names replaced by that alias's target, until no alias is left (or a cycle
+    returns an expression already seen)."""
+    seen: set[str] = set()
+    while target not in seen:
+        seen.add(target)
+        replacer = astutils.ASTFindReplace(dict(aliases))
+        tree = replacer.visit(ast.parse(target))
+        if not replacer.replace_count:
+            break
+        target = ast.unparse(tree)
+    return target
 
 
 def collapse_symbol_aliases(sdfg: SDFG, aliases: dict[str, str], *, keep_target_dtype: bool) -> None:
     """Rename every alias onto its target and drop the alias from ``sdfg.symbols``.
 
-    Same result as one ``sdfg.replace(alias, target)`` per entry in order, but in a single walk of the SDFG: a
-    whole-SDFG walk per alias dominated large builds (QE ``h_psi`` collapses thousands of extent aliases).  Order
-    matters only through chains -- a later alias that occurs in an earlier target -- so the earlier targets are
-    rewritten as each alias is added, which is exactly what the sequential renames would have produced.  An alias
-    the SDFG does not reference (nor reaches through such a chain) is a no-op, as before.
+    The aliases are equalities, so each target is resolved through the others first: a target that names another
+    alias (``vout_d0 -> psi1_d0`` with ``psi1_d0 -> n``) ends at ``n`` even when only ``vout_d0`` occurs in the SDFG.
+    One walk of the SDFG renames them all: a whole-SDFG walk per alias dominated large builds (QE ``h_psi`` collapses
+    thousands of extent aliases).  An alias the SDFG does not reference is a no-op.
 
     :param keep_target_dtype: restore each target symbol's existing dtype afterwards.  ``replace`` re-declares
         the target with the alias's dtype, which silently widens a scalar argument used as a bound (an int32
@@ -658,12 +664,8 @@ def collapse_symbol_aliases(sdfg: SDFG, aliases: dict[str, str], *, keep_target_
     present = set(sdfg.symbols) | set(sdfg.arrays) | {str(s) for s in sdfg.free_symbols}
     composed: dict[str, str] = {}
     for alias, target in aliases.items():
-        if alias == target:
-            continue
-        for earlier, earlier_target in composed.items():
-            composed[earlier] = _rename_in_expr(earlier_target, alias, target)
-        if alias in present:
-            composed[alias] = target
+        if alias in present and (resolved := _resolve_alias(target, aliases)) != alias:
+            composed[alias] = resolved
     target_dtypes = {t: sdfg.symbols[t] for t in composed.values() if t in sdfg.symbols} if keep_target_dtype else {}
     sdfg.replace_dict(composed)
     for alias in composed:
@@ -1223,6 +1225,24 @@ class SDFGBuilder:
         for e in sdfg.all_interstate_edges():
             for k in [k for k, v in e.data.assignments.items() if str(k) == str(v)]:
                 del e.data.assignments[k]
+        # An extent the kernel's own ALLOCATE assigns starts at 0, Fortran's unallocated array: a path that skips the
+        # ALLOCATE would otherwise read it unset. The binding hands such an array in unallocated (no copy-in), so 0 is
+        # its host extent too.
+        assigned = {str(k) for e in sdfg.all_interstate_edges() for k in e.data.assignments}
+        incoming = {str(s) for s in sdfg.free_symbols} | set(sdfg.arglist())
+        allocated_extents = sorted(
+            f"{name}_d{dim}"
+            for name, desc in sdfg.arrays.items()
+            for dim, extent in enumerate(desc.shape)
+            if str(extent) == f"{name}_d{dim}" and str(extent) in assigned and str(extent) not in incoming
+        )
+        if allocated_extents:
+            sdfg.add_state_before(
+                sdfg.start_block,
+                "allocated_extents_at_entry",
+                is_start_block=True,
+                assignments=dict.fromkeys(allocated_extents, "0"),
+            )
         # Pin Fortran statement order into the dataflow while node ids still ARE the emission
         # order: consecutive statements share one state, so a same-container pair in disjoint
         # components (``x = x - c`` / ``d = x - o`` / ``x = o``) is otherwise ordered only by a
@@ -1941,9 +1961,21 @@ class SDFGBuilder:
         # use-site-derived ``needed_syms`` so leaked unused-transient
         # shape symbols don't bloat the signature.
         free_syms = tuple(sorted(str(s) for s in sdfg.free_symbols if s not in leaked_syms))
+        # A scalar member of a scalar module record used only as a bound or extent (QE ``v(dffts%nnr)``) is
+        # read off the host record.
+        record_members = {
+            v.fortran_name: v
+            for v in self.variables
+            if v.aos_origin_mod and v.aos_origin_struct and v.aos_member_path and v.aos_outer_rank == 0 and v.rank == 0
+        }
+        module_symbol_members: dict[str, str] = {}
         for s in free_syms:
             if s not in module_symbol_origins and s in origin_by_name:
                 module_symbol_origins[s] = origin_by_name[s]
+            elif s not in module_symbol_origins and s in record_members:
+                v = record_members[s]
+                module_symbol_origins[s] = ModuleOrigin(v.aos_origin_mod, v.aos_origin_struct)
+                module_symbol_members[s] = v.aos_member_path
         # Module globals that survived as baked constants / seeded
         # transients rather than kwargs: a read-only module datum WITH an
         # initialiser (e.g. ICON's ``i_am_accel_node = .FALSE.``) takes the
@@ -1960,6 +1992,7 @@ class SDFGBuilder:
             args=tuple(args_list),
             free_symbols=free_syms,
             module_symbol_origins=module_symbol_origins,
+            module_symbol_members=module_symbol_members,
         )
         attach_to_sdfg(sdfg, fs)
 

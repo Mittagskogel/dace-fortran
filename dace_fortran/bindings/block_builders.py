@@ -634,7 +634,7 @@ def build_wrapper_body(
 
     orphans = _orphan_module_args(frozen, iface, plan)
     if orphans:
-        synth_members = _synthetic_members(plan)
+        synth_members = _module_members(frozen, plan)
         body.append("")
         body.append("    ! ----- Module-global args sourced from use-imports -----")
         for oa, _mod, _member in orphans:
@@ -1136,11 +1136,14 @@ def _module_symbol_alias(sym: str) -> str:
     return f"{sym}__mod"
 
 
-def _synthetic_members(plan: FlattenPlan | None) -> dict[str, str]:
+def _module_members(frozen: FrozenSignature, plan: FlattenPlan | None) -> dict[str, str]:
     """SDFG name -> struct member for every ``hlfir-flatten-global-scalar-reads``
-    lift.  The host entity, not the lifted scalar, is what the binding imports;
-    this map says which component to read off it."""
-    return {s.sdfg_name: s.member for s in (plan.synthetic_globals if plan is not None else ())}
+    lift and every free symbol the bridge read off a module record's scalar member.
+    The host entity, not the member, is what the binding imports; this map says
+    which component to read off it."""
+    members = dict(frozen.module_symbol_members)
+    members.update({s.sdfg_name: s.member for s in (plan.synthetic_globals if plan is not None else ())})
+    return members
 
 
 def _module_value_expr(sym: str, members: dict[str, str]) -> str:
@@ -1225,7 +1228,7 @@ def _extra_local_symbols(frozen: FrozenSignature, iface: OriginalInterface, plan
     origin symbols degrade to a degenerate default, valid since none is READ on
     the no-op path."""
     sources = effective_module_sources(frozen, iface, plan)
-    synth_members = _synthetic_members(plan)
+    synth_members = _module_members(frozen, plan)
     outer = {a.name for a in iface.args}
     flat = {f for e in plan.entries for f in e.recipe.flat_names}
     declared = set(frozen.free_symbols) | outer | flat
@@ -1620,7 +1623,7 @@ def _build_symbol_assigns(
     preferred when available; falls back to lbound/size on the arg's own Fortran
     expr for plain assumed-shape / non-default lower-bound dummies."""
     _module_sources = effective_module_sources(frozen, iface, plan)
-    _synth_members = _synthetic_members(plan)
+    _synth_members = _module_members(frozen, plan)
     # Struct-member free symbols with no FlattenEntry (used only as a loop bound /
     # extent, e.g. QE dfftt%ngm) -- sourced from the static struct_types layout.
     _struct_member_sources, _struct_member_paths = _struct_member_symbol_sources(iface)

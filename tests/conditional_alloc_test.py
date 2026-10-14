@@ -314,5 +314,37 @@ end module probe_mod
     _run(tmp_path, src, [(5,), (3,), (8,)], ["n"])
 
 
+def test_an_extent_no_path_allocates_starts_at_zero(tmp_path):
+    """``a_d0`` is set only by the ALLOCATEs, and the ``cond == 0`` path runs none: the extent is 0 (unallocated) at
+    entry, so that path never reads it unset (QE ``h_psi``'s ``g_d0``, which gcc proves uninitialized)."""
+    src = """
+module probe_mod
+  implicit none
+contains
+subroutine probe(cond, n, m, out)
+  implicit none
+  integer, intent(in) :: cond, n, m
+  real(8), intent(inout) :: out(10)
+  real(8), allocatable :: a(:)
+  if (cond > 0) then
+    allocate(a(n))
+  else if (cond < 0) then
+    allocate(a(m))
+  end if
+  if (allocated(a)) then
+    a = 2d0
+    out(1) = a(1)
+    out(2) = real(size(a), 8)
+    deallocate(a)
+  end if
+end subroutine probe
+end module probe_mod
+"""
+    sdfg = _run(tmp_path, src, [(1, 5, 3), (-1, 5, 3), (0, 5, 3)], ["cond", "n", "m"])
+    (entry,) = sdfg.out_edges(sdfg.start_block)
+    assert str(sdfg.arrays["a"].shape) == "(a_d0,)"
+    assert str(entry.data.assignments.get("a_d0")) == "0", entry.data.assignments
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))

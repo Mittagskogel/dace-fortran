@@ -5,7 +5,8 @@ E2e ``_QM<mod>E<entity>`` recovery is exercised by ``test_velocity_full_auto_mod
 this pins explicit-override precedence, the auto-only path, and serialisation stability.
 """
 
-from dace_fortran.bindings.block_builders import effective_module_sources
+from dace_fortran.bindings.block_builders import _build_symbol_assigns, effective_module_sources
+from dace_fortran.bindings.flatten_plan import FlattenPlan
 from dace_fortran.bindings.fortran_interface import OriginalInterface
 from dace_fortran.bindings.frozen_signature import FrozenArg, FrozenArgKind, FrozenSignature, ModuleOrigin
 
@@ -75,6 +76,26 @@ def test_frozen_signature_json_roundtrip(tmp_path):
     rt = FrozenSignature.from_json(str(p))
     assert rt.module_symbol_origins == {"nproma": ("mo_parallel_config", "nproma")}
     assert rt.args[0].shape == ("10",)
+
+
+def test_record_member_symbol_reads_the_host_member(tmp_path):
+    """A free symbol read off a module record's scalar member (QE ``v(dffts % nnr)``) is assigned from that member
+    of the imported record, and the member survives a JSON round trip."""
+    fs = FrozenSignature(
+        entry="k",
+        mangled="_QPk",
+        args=(),
+        free_symbols=("dffts_nnr",),
+        module_symbol_origins={"dffts_nnr": ModuleOrigin("fft_base", "dffts")},
+        module_symbol_members={"dffts_nnr": "nnr"},
+    )
+    p = tmp_path / "fs.json"
+    fs.to_json(str(p))
+    rt = FrozenSignature.from_json(str(p))
+    assert rt.module_symbol_members == {"dffts_nnr": "nnr"}
+    assert "    dffts_nnr = int(dffts_nnr__mod%nnr, c_int)" in _build_symbol_assigns(
+        rt, FlattenPlan(), set(), _iface({})
+    )
 
 
 if __name__ == "__main__":

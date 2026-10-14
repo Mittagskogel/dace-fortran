@@ -249,6 +249,48 @@ end module
     assert v[0, 0] == 5.0
 
 
+def test_size_of_a_section_of_a_local_allocatable_is_its_allocated_extent(tmp_path: Path):
+    """``SIZE`` of an assumed-shape dummy two calls below a local ``ALLOCATE(psi1(n, m))``, passed as ``psi1(:, :)``
+    then ``f_out(:, 1:1)``, is ``n``: no unbound ``psi1_d0`` extent symbol (QE ``vloc_psi_k_acc`` -> ``wave_r2g`` ->
+    ``fftx_psi2c_k``)."""
+    src = """
+module m
+  implicit none
+contains
+  subroutine leaf(vout, ngw)
+    complex(8), intent(out) :: vout(:, :)
+    integer, intent(in) :: ngw
+    integer :: ig
+    do ig = 1, min(ngw, size(vout, 1))
+      vout(ig, 1) = (2d0, 0d0)
+    end do
+  end subroutine
+  subroutine mid(f_out, ngw)
+    complex(8), intent(out) :: f_out(:, :)
+    integer, intent(in) :: ngw
+    call leaf(f_out(:, 1:1), ngw)
+  end subroutine
+  subroutine driver(n, m, psi, hpsi)
+    integer, intent(in) :: n, m
+    complex(8), intent(in) :: psi(n)
+    complex(8), intent(inout) :: hpsi(n)
+    complex(8), allocatable :: psi1(:, :)
+    allocate(psi1(n, m))
+    psi1(:, 1) = psi
+    call mid(psi1(:, :), n)
+    hpsi = hpsi + psi1(:, 1)
+    deallocate(psi1)
+  end subroutine
+end module
+"""
+    sdfg = build_sdfg(src, tmp_path, name="size_local_allocatable_section", entry="m::driver").build()
+    assert not {str(s) for s in sdfg.free_symbols} - {"n", "m"}, sdfg.free_symbols
+    n = 4
+    hpsi = np.zeros(n, dtype=np.complex128)
+    sdfg(n=n, m=1, psi=np.full(n, 7 + 1j), hpsi=hpsi)
+    np.testing.assert_array_equal(hpsi, np.full(n, 2 + 0j))
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -262,3 +304,4 @@ if __name__ == "__main__":
         test_size_assumed_shape_3d(Path(tempfile.mkdtemp(dir=tmp)))
         test_size_through_an_explicit_shape_dummy_is_its_declared_extent(Path(tempfile.mkdtemp(dir=tmp)))
         test_size_through_an_explicit_shape_dummy_of_a_pointer_actual(Path(tempfile.mkdtemp(dir=tmp)))
+        test_size_of_a_section_of_a_local_allocatable_is_its_allocated_extent(Path(tempfile.mkdtemp(dir=tmp)))

@@ -157,6 +157,9 @@ class FrozenSignature:
     # merges with hand-authored OriginalInterface.module_symbol_sources
     # (explicit map wins on conflict).
     module_symbol_origins: dict[str, ModuleOrigin] = field(default_factory=dict)
+    # sdfg_name -> scalar member of its module_symbol_origins entity, for a symbol read off a module record
+    # (``dffts_nnr`` <- ``dffts%nnr``).
+    module_symbol_members: dict[str, str] = field(default_factory=dict)
     # Integer communicator dummy the wrapper feeds (via MPI_Comm_f2c +
     # MPI_Comm_size) into __user_comm/__user_comm_size at dace_init_<entry>
     # time.  None if no runtime MPI comm.
@@ -176,6 +179,7 @@ class FrozenSignature:
             "free_symbols": list(self.free_symbols),
             "schema_version": self.schema_version,
             "module_symbol_origins": {k: list(v) for k, v in self.module_symbol_origins.items()},
+            "module_symbol_members": dict(self.module_symbol_members),
             "user_comm_source": self.user_comm_source,
         }
 
@@ -189,6 +193,7 @@ class FrozenSignature:
             free_symbols=tuple(d.get("free_symbols", [])),
             schema_version=d.get("schema_version", 1),
             module_symbol_origins={k: ModuleOrigin(*v) for k, v in d.get("module_symbol_origins", {}).items()},
+            module_symbol_members=dict(d.get("module_symbol_members", {})),
             user_comm_source=d.get("user_comm_source"),
         )
 
