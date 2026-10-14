@@ -2638,17 +2638,9 @@ std::vector<VarInfo> extractVariables(mlir::ModuleOp module, std::vector<ValueSy
                       // binding must pack the SoA buffer back into the host
                       // component on exit.
                       mv.is_written = globalIsWritten(globalSym, module);
-                      // A written scalar member of a scalar struct global is a
-                      // kernel-local transient: seed it with the component
-                      // default (``logical :: is_init = .false.``) as a written
-                      // module scalar is seeded.
-                      if (mv.is_written && mv.rank == 0 && seqExtents.empty()) {
-                        llvm::SmallVector<llvm::StringRef> parts;
-                        llvm::StringRef(mv.aos_member_path).split(parts, '%');
-                        std::vector<std::string> const componentPath(parts.begin(), parts.end());
-                        auto init = componentInitValue(module.lookupSymbol<fir::GlobalOp>(globalSym), componentPath);
-                        if (auto cst = init ? scalarConstantValue(init) : std::nullopt) mv.const_data = {*cst};
-                      }
+                      // A scalar member of a scalar struct global is host module state like a module scalar: the
+                      // binding copies it in, and back out when the kernel writes it.
+                      if (mv.rank == 0 && seqExtents.empty()) mv.intent = mv.is_written ? "inout" : "in";
                     }
                   }
                   vars.push_back(std::move(mv));

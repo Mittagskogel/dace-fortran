@@ -149,6 +149,13 @@ def run_cloudsc_gpu(
     kwargs.update(state_sdfg)
     kwargs.update(sdfg_call_args(sdfg, scalars))
     arglist = sdfg.arglist()
+    # YRECLDP is host module state the driver fills before CLOUDSC reads it: its members are in/out arguments,
+    # zero like the f2py leg's never-set module.
+    kwargs.update(
+        sdfg_call_args(
+            sdfg, {k: d.dtype.as_numpy_dtype().type(0) for k, d in arglist.items() if k.startswith("yrecldp_")}
+        )
+    )
     # Non-arglist registry entries are the baked YOECLDP PARAMETERs (asserted above);
     # anything else missing/unprovided is a bug.
     kwargs = {k: v for k, v in kwargs.items() if k in arglist}

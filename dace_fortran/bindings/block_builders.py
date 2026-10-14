@@ -1511,8 +1511,10 @@ def _render_aos_copy_out(a: FrozenArg) -> list[str]:
         out = []
         member = f"{a.aos_origin_struct}%{a.aos_member_path}"
         if a.rank and _aos_member_is_static(a):
-            # Fixed-shape VALUE member: unconditionally present, no guard needed.
-            out.append(f"    {member} = {a.sdfg_name}")
+            # Fixed-shape VALUE member: unconditionally present, no guard needed. A scalar member travels as a
+            # length-1 array; its element assigns to a scalar or to a one-element array member alike.
+            value = f"{a.sdfg_name}(1)" if tuple(a.shape) == ("1",) else a.sdfg_name
+            out.append(f"    {member} = {value}")
         elif a.rank:
             mp = _present(member, a.aos_member_pointer)
             out.append(f"    if ({mp}) {member} = {a.sdfg_name}")

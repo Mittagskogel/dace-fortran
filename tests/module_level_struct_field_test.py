@@ -14,7 +14,6 @@ VarInfo per unique component referenced, as a TRANSIENT (module globals are inte
 import re
 
 import numpy as np
-from dace.sdfg.state import SDFGState
 
 from tests._util import build_sdfg, run_passes_dump
 
@@ -116,9 +115,9 @@ end module
     assert "g_c" in sdfg.arrays or "g_c" in sdfg.scalars or "g_c" in sdfg.symbols
 
 
-def test_module_level_struct_member_default_init_seeds_a_lazy_init_flag(tmp_path):
-    """``logical :: is_init = .false.`` on a member of a written module struct: the kernel-local copy
-    of the flag starts from the component default, so the first call runs the initialisation."""
+def test_written_module_struct_member_is_an_inout_argument(tmp_path):
+    """``solver % is_init`` and ``solver % x`` are host module state the kernel writes: both are in/out arguments, so
+    the kernel starts from the caller's values and hands its updates back."""
     src = """
 module m
   type :: t
@@ -141,15 +140,14 @@ contains
   end subroutine
 end module
 """
-    sdfg = build_sdfg(src, tmp_path / "sdfg", name="lazy_init_member", entry="m::driver").build()
-    (flag,) = [name for name in sdfg.arrays if name.endswith("is_init")]
-    entry = sdfg.start_block
-    assert isinstance(entry, SDFGState)
-    seeds = [n for n in entry.data_nodes() if n.data == flag and entry.in_degree(n) > 0]
-    assert len(seeds) == 1, f"{flag} is not seeded exactly once in the entry state"
-    out = np.zeros(1)
-    sdfg(a=3.0, out=out)
-    assert out[0] == 3.0
+    sdfg = build_sdfg(src, tmp_path / "sdfg", name="written_struct_member", entry="m::driver").build()
+    (flag,) = [name for name in sdfg.arglist() if name.endswith("is_init")]
+    (x,) = [name for name in sdfg.arglist() if name.endswith("_x")]
+    out, is_init, value = np.zeros(1), np.zeros(1, dtype=sdfg.arrays[flag].dtype.as_numpy_dtype()), np.zeros(1)
+    sdfg(a=3.0, out=out, **{flag: is_init, x: value})
+    assert out[0] == 3.0 and is_init[0] and value[0] == 3.0
+    sdfg(a=5.0, out=out, **{flag: is_init, x: value})
+    assert out[0] == 3.0, "an initialised host flag skips the initialisation"
 
 
 def test_read_only_member_of_a_written_module_struct_is_a_kernel_input(tmp_path):
@@ -439,7 +437,7 @@ if __name__ == "__main__":
         test_module_level_struct_matmul_transpose_inline(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_multiple_array_fields(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_scalar_field(Path(tempfile.mkdtemp(dir=tmp)))
-        test_module_level_struct_member_default_init_seeds_a_lazy_init_flag(Path(tempfile.mkdtemp(dir=tmp)))
+        test_written_module_struct_member_is_an_inout_argument(Path(tempfile.mkdtemp(dir=tmp)))
         test_read_only_member_of_a_written_module_struct_is_a_kernel_input(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_accessed_via_inlined_callee_alias(Path(tempfile.mkdtemp(dir=tmp)))
         test_module_level_struct_field_unaccessed_not_registered(Path(tempfile.mkdtemp(dir=tmp)))

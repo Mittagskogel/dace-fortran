@@ -96,7 +96,26 @@ def test_1d_allocatable_member_unchanged():
     assert "aos_becxx_k_c1 = max(aos_becxx_k_c1, size(becxx(aos_becxx_k_i0)%k, 2))" in src
 
 
-if __name__ == "__main__":
-    import pytest
+def test_scalar_member_of_a_scalar_struct_writes_back_its_element():
+    """QE ``dffts % ngw``: a written scalar member travels as a length-1 array and writes back its one element."""
+    member = FrozenArg(
+        fortran_name="dffts_ngw",
+        sdfg_name="dffts_ngw",
+        kind=FrozenArgKind.ARRAY,
+        dtype="int32",
+        rank=1,
+        shape=("1",),
+        is_written=True,
+        aos_origin_struct="dffts",
+        aos_member_path="ngw",
+        aos_outer_rank=0,
+    )
+    assert "    dffts%ngw = dffts_ngw(1)" in _render_aos_copy_out(member)
 
-    raise SystemExit(pytest.main([__file__]))
+
+if __name__ == "__main__":
+    test_ndim_cartesian_copy_in_indexes_all_outer_dims()
+    test_static_value_member_emits_no_presence_guard()
+    test_static_value_member_copy_out_scatters_all_dims()
+    test_1d_allocatable_member_unchanged()
+    test_scalar_member_of_a_scalar_struct_writes_back_its_element()
