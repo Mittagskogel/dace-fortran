@@ -1229,7 +1229,8 @@ class SDFGBuilder:
         # ALLOCATE would otherwise read it unset. The binding hands such an array in unallocated (no copy-in), so 0 is
         # its host extent too.
         assigned = {str(k) for e in sdfg.all_interstate_edges() for k in e.data.assignments}
-        incoming = {str(s) for s in sdfg.free_symbols} | set(sdfg.arglist())
+        # Not ``arglist()``: it raises on a free symbol nobody declared, which validation must reject by name below.
+        incoming = {str(s) for s in sdfg.free_symbols} | {k for k, v in sdfg.arrays.items() if not v.transient}
         allocated_extents = sorted(
             f"{name}_d{dim}"
             for name, desc in sdfg.arrays.items()
