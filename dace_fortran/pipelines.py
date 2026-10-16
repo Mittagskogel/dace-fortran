@@ -37,14 +37,15 @@ from dace.transformation.dataflow.wcr_conversion import AugAssignToWCR
 from dace.transformation.interstate.loop_to_map import LoopToMap
 from dace.transformation.interstate.state_fusion_with_happens_before import StateFusionExtended
 from dace.transformation.pass_pipeline import Pipeline
-from dace.transformation.passes.demote_non_structural_symbols import DemoteNonStructuralSymbols
 from dace.transformation.passes.full_map_fusion import FullMapFusion
 from dace.transformation.passes.length_one_array_scalar_conversion import ConvertLengthOneArraysToScalars
-from dace.transformation.passes.parallelization_prep import ShortLoopUnroll
 from dace.transformation.passes.scalar_fission import ScalarFission
 from dace.transformation.passes.unique_loop_iterators import UniqueLoopIterators
 
+from dace_fortran.demote_symbols import DemoteNonStructuralSymbols
+from dace_fortran.loop_unroll import ShortLoopUnroll
 from dace_fortran.omp_threads import BindOmpThreadCount
+from dace_fortran.persistent_transients import MakeTransientsPersistent
 
 #: Labels of the states ``ConvertLengthOneArraysToScalars`` adds to copy staged signature arrays in and out.
 STAGING_STATE_PREFIXES = ("stage_copyin", "stage_copyout")
@@ -318,8 +319,6 @@ def optimize(
     sdfg.apply_transformations_repeated(MapCollapse, validate=validate)
     # A freshly-collapsed nest can expose a fusion the pass above missed.
     FullMapFusion(validate=validate).apply_pass(sdfg, {})
-
-    from dace.transformation.passes.persistent_transients import MakeTransientsPersistent
 
     MakeTransientsPersistent().apply_pass(sdfg, {})
     BindOmpThreadCount().apply_pass(sdfg, {})

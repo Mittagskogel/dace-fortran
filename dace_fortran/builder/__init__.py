@@ -1239,7 +1239,7 @@ class SDFGBuilder:
         )
         if allocated_extents:
             sdfg.add_state_before(
-                sdfg.start_block,
+                cast(SDFGState, sdfg.start_block),
                 "allocated_extents_at_entry",
                 is_start_block=True,
                 assignments=dict.fromkeys(allocated_extents, "0"),
