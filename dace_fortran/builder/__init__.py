@@ -1687,12 +1687,9 @@ class SDFGBuilder:
         Currently:
             * ``UniqueLoopIterators`` -- rewrites every ``LoopRegion``'s
               loop variable to a globally-unique ``_loop_it_<N>`` symbol
-              and propagates the rename through the body.  Enabled with
-              ``assign_loop_iterator_post_value=True``: bridge-emitted
-              SDFGs land in Fortran callers that read the iterator after
-              the loop end (gfortran/ifort/flang convention: one stride
-              past the last attained value), so the pass also stages a
-              postfix-assignment state for that read.
+              and propagates the rename through the body.  Where a block
+              after the loop reads the iterator, the pass assigns it the
+              Fortran exit value (one stride past the last attained value).
             * ``ConvertLengthOneArraysToScalars`` -- leaves no length-1
               ``Array`` behind.  Local 1-element transients fold in
               place; signature length-1 arrays are STAGED into transient
@@ -1725,9 +1722,7 @@ class SDFGBuilder:
 
         stage_view_reads_off_interstate_edges(self, sdfg)
 
-        uniq_loop_iter_pass = UniqueLoopIterators()
-        uniq_loop_iter_pass.assign_loop_iterator_post_value = True
-        uniq_loop_iter_pass.apply_pass(sdfg, {})
+        UniqueLoopIterators().apply_pass(sdfg, {})
 
         # ``UniqueLoopIterators`` renames each ``LoopRegion``'s loop variable to
         # a unique ``_loop_it_<N>``.  When the ORIGINAL name (an inlined

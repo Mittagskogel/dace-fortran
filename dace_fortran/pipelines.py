@@ -296,7 +296,7 @@ def optimize(
     ConvertLengthOneArraysToScalars(preserve_abi=True).apply_pass(sdfg, {})
 
     ShortLoopUnroll(unroll_limit).apply_pass(sdfg, {})
-    # default assign_loop_iterator_post_value=True keeps Fortran counted-DO exit-value semantics;
+    # Keeps Fortran counted-DO exit values where read after the loop;
     # shared iterator names otherwise make LoopToMap refuse merged siblings.
     UniqueLoopIterators().apply_pass(sdfg, {})
     fission_scalars(sdfg)
